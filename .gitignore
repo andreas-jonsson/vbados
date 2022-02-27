@@ -1,0 +1,5 @@
+vbmouse.drv
+vbmouse.map
+vbmouse.flp
+*.o
+runvm.sh

@@ -1,0 +1,9 @@
+OPTION MODNAME=MOUSE   # This is necessary; USER.EXE imports mouse functions using this module name
+OPTION DESCRIPTION 'VirtualBox Mouse driver'
+
+SEGMENT CALLBACKS FIXED SHARED      # We need a non-moveable segment to store our PS/2 BIOS callbacks
+
+EXPORT Inquire.1
+EXPORT Enable.2
+EXPORT Disable.3
+EXPORT MouseGetIntVect.4
