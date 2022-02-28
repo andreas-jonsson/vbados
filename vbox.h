@@ -55,6 +55,9 @@ static void vbox_logs(const char __far *str);
 
 extern int vbox_init(void);
 
+extern int vbox_alloc_buffers(void);
+extern int vbox_free_buffers(void);
+
 extern int vbox_report_guest_info(uint32_t osType);
 
 extern int vbox_set_filter_mask(uint32_t add, uint32_t remove);
@@ -62,9 +65,6 @@ extern int vbox_set_filter_mask(uint32_t add, uint32_t remove);
 extern int vbox_set_mouse(bool enable);
 
 extern int vbox_get_mouse(bool *abs, uint16_t *xpos, uint16_t *ypos);
-
-extern void vbox_init_callbacks();
-extern void vbox_deinit_callbacks();
 
 // In CALLBACKS segment:
 

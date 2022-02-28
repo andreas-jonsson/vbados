@@ -123,7 +123,6 @@ BOOL FAR PASCAL LibMain(HINSTANCE hInstance, WORD wDataSegment,
 	// However we will check whether VirtualBox exists:
 	if (vbox_init() == 0) {
 		vbox_logs("VirtualBox found\n");
-		vbox_report_guest_info(VBOXOSTYPE_Win31);
 
 		// VirtualBox connection was succesful, remember that
 		mouseflags |= MOUSEFLAGS_HAS_VBOX;
@@ -171,11 +170,16 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 
 #if ENABLE_VBOX
 		if (mouseflags & MOUSEFLAGS_HAS_VBOX) {
-			vbox_init_callbacks();
+			if ((err = vbox_alloc_buffers())) {
+				vbox_logs("VBox alloc failure\n");
+				return;
+			}
+
+			vbox_report_guest_info(VBOXOSTYPE_Win31);
 
 			if ((err = vbox_set_mouse(true))) {
 				vbox_logs("VBox enable failure\n");
-				vbox_deinit_callbacks();
+				vbox_free_buffers();
 				return;
 			}
 
@@ -199,7 +203,7 @@ VOID FAR PASCAL Disable(VOID)
 #if ENABLE_VBOX
 		if (mouseflags & MOUSEFLAGS_VBOX_ENABLED) {
 			vbox_set_mouse(false);
-			vbox_deinit_callbacks();
+			vbox_free_buffers();
 			vbox_logs("VBOX Disabled!\n");
 			mouseflags &= ~MOUSEFLAGS_VBOX_ENABLED;
 		}

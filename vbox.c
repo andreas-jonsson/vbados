@@ -19,11 +19,14 @@
 
 #include <windows.h>
 #include <i86.h>
+#include <string.h>
 
 #include "pci.h"
+#include "vds.h"
 #include "vboxdev.h"
 #include "vbox.h"
 
+// PCI device information
 /** VBox's PCI bus, device number, etc. */
 static pcisel vbpci;
 /** IO base of VBox's PCI device. */
@@ -31,14 +34,16 @@ static uint16_t vbiobase;
 /** IRQ number of VBox's PCI device. Unused. */
 static uint8_t vbirq;
 
-/** Keep a pre-allocated VBox VMMDevRequest struct for the benefit of the callbacks,
-    which may be called in a IRQ handler where I'd prefer to avoid making API calls. */
-static VMMDevReqMouseStatus __far * reqMouse;
-static HANDLE reqMouseH;
-static uint32_t reqMouseAddr;
+/** Handle to fixed buffer used for communication with VBox device.
+  * We also use Virtual DMA Service to obtain the physical address of this buffer,
+  * so it must remain fixed in memory. */
+static HANDLE hBuf;
+static LPVOID pBuf;
+/** The DMA descriptor used by VDS corresponding to the above buffer. */
+static VDS_DDS bufdds;
 
 /** Actually send a request to the VirtualBox VMM device.
-  * @param addr 32-bit linear address containing the VMMDevRequest struct.
+  * @param addr 32-bit physical address containing the VMMDevRequest struct.
   */
 static void vbox_send_request(uint32_t addr);
 #pragma aux vbox_send_request = \
@@ -61,7 +66,7 @@ static uint32_t vbox_irq_ack();
 	"in eax, dx" \
 	"mov edx, eax" \
 	"shr edx, 16" \
-	__value [dx ax] \
+	__value [dx ax]
 
 // Classic PCI defines
 #define VBOX_PCI_VEND_ID 0x80ee
@@ -72,21 +77,6 @@ enum {
 	CFG_BAR0            = 0x10, /* DWord */
 	CFG_BAR1            = 0x14, /* DWord */
 };
-
-/** Gets the 32-bit linear address of a 16:16 far pointer.
-    Uses GetSelectorBase() since we are supposed to work under protected mode. */
-static inline uint32_t get_physical_addr(void far *obj)
-{
-	return GetSelectorBase(FP_SEG(obj)) + FP_OFF(obj);
-}
-
-/** Send a request to the VirtualBox VMM device at vbiobase.
- *  @param request must be a VMMDevRequest (e.g. VMMDevReqMouseStatus). */
-static inline void vbox_request(void far *request)
-{
-	uint32_t addr = get_physical_addr(request);
-	vbox_send_request(addr);
-}
 
 /** Finds the VirtualBox PCI device and reads the current IO base.
   * @returns 0 if the device was found. */
@@ -126,56 +116,118 @@ int vbox_init(void)
 	return 0;
 }
 
+/** Allocates the buffers that will be used to communicate with the VirtualBox device. */
+int vbox_alloc_buffers(void)
+{
+	const unsigned int bufferSize = 48; // This should be the largest of all VMMDevRequest* structs that we can send
+	int err;
+
+	// Allocate the buffer
+	hBuf = GlobalAlloc(GMEM_FIXED|GMEM_SHARE, bufferSize);
+	if (!hBuf) return -1;
+
+	// Keep it in memory at a fixed location
+	GlobalFix(hBuf);
+	GlobalPageLock(hBuf);
+
+	// Get the usable pointer / logical address of the buffer
+	pBuf = (LPVOID) GlobalLock(hBuf);
+
+	if (vds_available()) {
+		// Use the Virtual DMA Service to get the physical address of this buffer
+		bufdds.regionSize = bufferSize;
+		bufdds.segOrSelector = FP_SEG(pBuf);
+		bufdds.offset = FP_OFF(pBuf);
+		bufdds.bufferId = 0;
+		bufdds.physicalAddress = 0;
+
+		err = vds_lock_dma_buffer_region(&bufdds, VDS_NO_AUTO_ALLOC | VDS_NO_AUTO_REMAP);
+	} else {
+		bufdds.regionSize = 0;  // Indicates we don't have to unlock this later on
+
+		// If VDS is not available, assume we are not paging
+		// Just use the linear address as physical
+		bufdds.physicalAddress = GetSelectorBase(FP_SEG(pBuf)) + FP_OFF(pBuf);
+		err = 0;
+	}
+
+	return err;
+}
+
+/** Frees the buffers allocated by vbox_alloc_buffers(). */
+int vbox_free_buffers(void)
+{
+	if (bufdds.regionSize > 0) {
+		vds_unlock_dma_buffer_region(&bufdds, 0);
+	}
+	bufdds.regionSize = 0;
+	bufdds.segOrSelector = 0;
+	bufdds.offset = 0;
+	bufdds.bufferId = 0;
+	bufdds.physicalAddress = 0;
+	GlobalFree(hBuf);
+	hBuf = NULL;
+	pBuf = NULL;
+
+	return 0;
+}
+
 /** Lets VirtualBox know that there are VirtualBox Guest Additions on this guest.
   * @param osType os installed on this guest. */
 int vbox_report_guest_info(uint32_t osType)
 {
-	VMMDevReportGuestInfo req = {0};
+	VMMDevReportGuestInfo *req = pBuf;
 
-	req.header.size = sizeof(req);
-	req.header.version = VMMDEV_REQUEST_HEADER_VERSION;
-	req.header.requestType = VMMDevReq_ReportGuestInfo;
-	req.header.rc = -1;
-	req.guestInfo.interfaceVersion = VMMDEV_VERSION;
-	req.guestInfo.osType = osType;
+	memset(req, 0, sizeof(VMMDevReportGuestInfo));
 
-	vbox_request(&req);
+	req->header.size = sizeof(VMMDevReportGuestInfo);
+	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
+	req->header.requestType = VMMDevReq_ReportGuestInfo;
+	req->header.rc = -1;
+	req->guestInfo.interfaceVersion = VMMDEV_VERSION;
+	req->guestInfo.osType = osType;
 
-	return req.header.rc;
+	vbox_send_request(bufdds.physicalAddress);
+
+	return req->header.rc;
 }
 
 /** Tells VirtualBox about the events we are interested in receiving.
     These events are notified via the PCI IRQ which we are not using, so this is not used either. */
 int vbox_set_filter_mask(uint32_t add, uint32_t remove)
 {
-	VMMDevCtlGuestFilterMask req = {0};
+	VMMDevCtlGuestFilterMask *req = pBuf;
 
-	req.header.size = sizeof(req);
-	req.header.version = VMMDEV_REQUEST_HEADER_VERSION;
-	req.header.requestType = VMMDevReq_CtlGuestFilterMask;
-	req.header.rc = -1;
-	req.u32OrMask = add;
-	req.u32NotMask = remove;
+	memset(req, 0, sizeof(VMMDevCtlGuestFilterMask));
 
-	vbox_request(&req);
+	req->header.size = sizeof(VMMDevCtlGuestFilterMask);
+	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
+	req->header.requestType = VMMDevReq_CtlGuestFilterMask;
+	req->header.rc = -1;
+	req->u32OrMask = add;
+	req->u32NotMask = remove;
 
-	return req.header.rc;
+	vbox_send_request(bufdds.physicalAddress);
+
+	return req->header.rc;
 }
 
 /** Tells VirtualBox whether we want absolute mouse information or not. */
 int vbox_set_mouse(bool enable)
 {
-	VMMDevReqMouseStatus req = {0};
+	VMMDevReqMouseStatus *req = pBuf;
 
-	req.header.size = sizeof(req);
-	req.header.version = VMMDEV_REQUEST_HEADER_VERSION;
-	req.header.requestType = VMMDevReq_SetMouseStatus;
-	req.header.rc = -1;
-	req.mouseFeatures = enable ? VMMDEV_MOUSE_GUEST_CAN_ABSOLUTE : 0;
+	memset(req, 0, sizeof(VMMDevReqMouseStatus));
 
-	vbox_request(&req);
+	req->header.size = sizeof(VMMDevReqMouseStatus);
+	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
+	req->header.requestType = VMMDevReq_SetMouseStatus;
+	req->header.rc = -1;
+	req->mouseFeatures = enable ? VMMDEV_MOUSE_GUEST_CAN_ABSOLUTE : 0;
 
-	return req.header.rc;
+	vbox_send_request(bufdds.physicalAddress);
+
+	return req->header.rc;
 }
 
 /** Gets the current absolute mouse position from VirtualBox.
@@ -183,57 +235,46 @@ int vbox_set_mouse(bool enable)
   *  in which case we should fallback to PS/2 relative events. */
 int vbox_get_mouse(bool *abs, uint16_t *xpos, uint16_t *ypos)
 {
-	VMMDevReqMouseStatus req = {0};
+	VMMDevReqMouseStatus *req = pBuf;
 
-	req.header.size = sizeof(req);
-	req.header.version = VMMDEV_REQUEST_HEADER_VERSION;
-	req.header.requestType = VMMDevReq_GetMouseStatus;
-	req.header.rc = -1;
+	memset(req, 0, sizeof(VMMDevReqMouseStatus));
 
-	vbox_request(&req);
+	req->header.size = sizeof(VMMDevReqMouseStatus);
+	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
+	req->header.requestType = VMMDevReq_GetMouseStatus;
+	req->header.rc = -1;
 
-	*abs = req.mouseFeatures & VMMDEV_MOUSE_HOST_WANTS_ABSOLUTE;
-	*xpos = req.pointerXPos;
-	*ypos = req.pointerYPos;
+	vbox_send_request(bufdds.physicalAddress);
 
-	return req.header.rc;
-}
+	*abs = req->mouseFeatures & VMMDEV_MOUSE_HOST_WANTS_ABSOLUTE;
+	*xpos = req->pointerXPos;
+	*ypos = req->pointerYPos;
 
-/** Just allocates the memory used by vbox_get_mouse_locked below. */
-void vbox_init_callbacks(void)
-{
-	reqMouseH = GlobalAlloc(GMEM_FIXED|GMEM_SHARE, sizeof(VMMDevReqMouseStatus));
-	reqMouse = (LPVOID) GlobalLock(reqMouseH);
-	reqMouseAddr = get_physical_addr(reqMouse);
-}
-
-void vbox_deinit_callbacks(void)
-{
-	GlobalFree(reqMouseH);
-	reqMouse = NULL;
-	reqMouseAddr = 0;
+	return req->header.rc;
 }
 
 #pragma code_seg ( "CALLBACKS" )
 
-/** This is a version of vbox_get_mouse() that does not call any other functions. */
+/** This is a version of vbox_get_mouse() that does not call any other functions,
+  * and may be called inside an interrupt handler.  */
 int vbox_get_mouse_locked(bool *abs, uint16_t *xpos, uint16_t *ypos)
 {
-	// Note that this may be called with interrupts disabled
-	reqMouse->header.size = sizeof(VMMDevReqMouseStatus);
-	reqMouse->header.version = VMMDEV_REQUEST_HEADER_VERSION;
-	reqMouse->header.requestType = VMMDevReq_GetMouseStatus;
-	reqMouse->header.rc = -1;
-	reqMouse->mouseFeatures = 0;
-	reqMouse->pointerXPos = 0;
-	reqMouse->pointerYPos = 0;
+	VMMDevReqMouseStatus *req = pBuf;
 
-	vbox_send_request(reqMouseAddr);
+	req->header.size = sizeof(VMMDevReqMouseStatus);
+	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
+	req->header.requestType = VMMDevReq_GetMouseStatus;
+	req->header.rc = -1;
+	req->mouseFeatures = 0;
+	req->pointerXPos = 0;
+	req->pointerYPos = 0;
 
-	*abs = reqMouse->mouseFeatures & VMMDEV_MOUSE_HOST_WANTS_ABSOLUTE;
-	*xpos = reqMouse->pointerXPos;
-	*ypos = reqMouse->pointerYPos;
+	vbox_send_request(bufdds.physicalAddress);
 
-	return reqMouse->header.rc;
+	*abs = req->mouseFeatures & VMMDEV_MOUSE_HOST_WANTS_ABSOLUTE;
+	*xpos = req->pointerXPos;
+	*ypos = req->pointerYPos;
+
+	return req->header.rc;
 }
 
