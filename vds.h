@@ -95,14 +95,14 @@ static vdserr vds_lock_dma_buffer_region(VDS_DDS __far * dds, unsigned char flag
 	"mov ax, 0x8103" \
 	"int 0x4B" \
 	"jc fail" \
-	"mov ah, 0" \
+	"mov al, 0" \
 	"jmp end" \
-	"fail: test ah, ah" \
+	"fail: test al, al" \
 	"jnz end" \
-	"mov ah, 0xFF"       /* Force a error code if there was none. */ \
+	"mov al, 0xFF"       /* Force a error code if there was none. */ \
 	"end:" \
 	__parm [es di] [dx] \
-	__value [ah] \
+	__value [al] \
 	__modify [ax]
 
 /** Unlocks a locked buffer. */
@@ -112,14 +112,14 @@ static vdserr vds_unlock_dma_buffer_region(VDS_DDS __far * dds, unsigned char fl
 	"mov ax, 0x8104" \
 	"int 0x4B" \
 	"jc fail" \
-	"mov ah, 0" \
+	"mov al, 0" \
 	"jmp end" \
-	"fail: test ah, ah" \
+	"fail: test al, al" \
 	"jnz end" \
-	"mov ah, 0xFF" \
+	"mov al, 0xFF" \
 	"end:" \
 	__parm [es di] [dx] \
-	__value [ah] \
+	__value [al] \
 	__modify [ax]
 
 #endif

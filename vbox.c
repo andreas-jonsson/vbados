@@ -19,7 +19,6 @@
 
 #include <windows.h>
 #include <i86.h>
-#include <string.h>
 
 #include "pci.h"
 #include "vds.h"
@@ -119,11 +118,11 @@ int vbox_init(void)
 /** Allocates the buffers that will be used to communicate with the VirtualBox device. */
 int vbox_alloc_buffers(void)
 {
-	const unsigned int bufferSize = 48; // This should be the largest of all VMMDevRequest* structs that we can send
+	const unsigned int bufferSize = 36; // This should be the largest of all VMMDevRequest* structs that we can send
 	int err;
 
-	// Allocate the buffer
-	hBuf = GlobalAlloc(GMEM_FIXED|GMEM_SHARE, bufferSize);
+	// Allocate the buffer (double the size for reasons explained below)
+	hBuf = GlobalAlloc(GMEM_FIXED|GMEM_SHARE, bufferSize * 2);
 	if (!hBuf) return -1;
 
 	// Keep it in memory at a fixed location
@@ -132,6 +131,7 @@ int vbox_alloc_buffers(void)
 
 	// Get the usable pointer / logical address of the buffer
 	pBuf = (LPVOID) GlobalLock(hBuf);
+	if (!pBuf) return -1;
 
 	if (vds_available()) {
 		// Use the Virtual DMA Service to get the physical address of this buffer
@@ -141,7 +141,22 @@ int vbox_alloc_buffers(void)
 		bufdds.bufferId = 0;
 		bufdds.physicalAddress = 0;
 
-		err = vds_lock_dma_buffer_region(&bufdds, VDS_NO_AUTO_ALLOC | VDS_NO_AUTO_REMAP);
+		err = vds_lock_dma_buffer_region(&bufdds, VDS_NO_AUTO_ALLOC);
+		if (err == VDS_REGION_NOT_CONTIGUOUS) {
+			// This is why we made the allocation double the required size
+			// If the buffer happens to be on a page boundary,
+			// it may not be contiguous and cause the call to fail.
+			// So, we try to lock the 2nd half of the allocation,
+			// which should not be on a page boundary.
+			vbox_logs("VDS try again\n");
+			pBuf = (char FAR*) pBuf + bufferSize;
+			bufdds.regionSize = bufferSize;
+			bufdds.offset += bufferSize;
+			err = vds_lock_dma_buffer_region(&bufdds, VDS_NO_AUTO_ALLOC);
+		}
+		if (err) {
+			vbox_logs("VDS lock failure\n");
+		}
 	} else {
 		bufdds.regionSize = 0;  // Indicates we don't have to unlock this later on
 
