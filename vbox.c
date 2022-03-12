@@ -18,6 +18,7 @@
  */
 
 #include <windows.h>
+#include <string.h>
 #include <i86.h>
 
 #include "pci.h"
