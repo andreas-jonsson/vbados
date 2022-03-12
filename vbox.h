@@ -68,6 +68,8 @@ extern int vbox_get_mouse(bool *abs, uint16_t *xpos, uint16_t *ypos);
 
 // In CALLBACKS segment:
 
+extern int vbox_set_mouse_locked(bool enable);
+
 extern int vbox_get_mouse_locked(bool *abs, uint16_t *xpos, uint16_t *ypos);
 
 #endif

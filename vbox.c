@@ -270,8 +270,26 @@ int vbox_get_mouse(bool *abs, uint16_t *xpos, uint16_t *ypos)
 
 #pragma code_seg ( "CALLBACKS" )
 
-/** This is a version of vbox_get_mouse() that does not call any other functions,
+/** This is a version of vbox_set_mouse() that does not call any other functions,
   * and may be called inside an interrupt handler.  */
+int vbox_set_mouse_locked(bool enable)
+{
+	VMMDevReqMouseStatus *req = pBuf;
+
+	req->header.size = sizeof(VMMDevReqMouseStatus);
+	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
+	req->header.requestType = VMMDevReq_SetMouseStatus;
+	req->header.rc = -1;
+	req->mouseFeatures = enable ? VMMDEV_MOUSE_GUEST_CAN_ABSOLUTE : 0;
+	req->pointerXPos = 0;
+	req->pointerYPos = 0;
+
+	vbox_send_request(bufdds.physicalAddress);
+
+	return req->header.rc;
+}
+
+/** Likewise for vbox_get_mouse() */
 int vbox_get_mouse_locked(bool *abs, uint16_t *xpos, uint16_t *ypos)
 {
 	VMMDevReqMouseStatus *req = pBuf;
