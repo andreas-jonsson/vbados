@@ -32,6 +32,11 @@ enum int2f_functions
 	INT2F_NOTIFY_FOREGROUND_SWITCH = 0x4002
 };
 
+enum vxd_device_ids
+{
+	VMD_DEVICE_ID = 0xC
+};
+
 static bool windows_386_enhanced_mode(void);
 #pragma aux windows_386_enhanced_mode = \
 	"mov ax, 0x1600" \
@@ -40,6 +45,49 @@ static bool windows_386_enhanced_mode(void);
 	"setnz al" \
 	__value [al] \
 	__modify [ax]
+
+static LPFN win_get_vxd_api_entry(uint16_t devid);
+#pragma aux win_get_vxd_api_entry = \
+	"mov ax, 0x1684" /* Get Device Entry Point Address */  \
+	"int 0x2F" \
+	__parm [bx] \
+	__value [es di] \
+	__modify [ax]
+
+/* VMD (Virtual Mouse Device) API */
+
+enum vmd_apis {
+	VMD_GET_VERSION    = 0x0,
+	VMD_SET_MOUSE_TYPE = 0x100,
+};
+
+enum vmd_mouse_type {
+	VMD_TYPE_UNDEFINED = 0,
+	VMD_TYPE_BUS       = 1,
+	VMD_TYPE_SERIAL    = 2,
+	VMD_TYPE_INPORT    = 3,
+	VMD_TYPE_PS2       = 4,
+	VMD_TYPE_HP        = 5
+};
+
+static inline int vmd_get_version(LPFN *vmd_entry);
+#pragma aux vmd_get_version = \
+	"mov ax, 0x000" \
+	"call dword ptr es:[di]" \
+	__parm [es di] \
+	__value [ax]
+
+static inline bool vmd_set_mouse_type(LPFN *vmd_entry, uint8_t mousetype, int8_t interrupt, int8_t com_port);
+#pragma aux vmd_set_mouse_type = \
+	"stc"                    /* If nothing happens, assume failure */ \
+	"mov ax, 0x100" \
+	"call dword ptr es:[di]" \
+	"setnc al" \
+	__parm [es di] [bl] [bh] [cl] \
+	__value [al] \
+	__modify [ax]
+
+/* Miscelaneous helpers. */
 
 static inline void hook_int2f(LPFN *prev, LPFN new)
 {

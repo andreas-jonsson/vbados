@@ -212,6 +212,15 @@ BOOL FAR PASCAL LibMain(HINSTANCE hInstance, WORD wDataSegment,
 	}
 #endif
 
+	// When running under protected mode Windows, let's tell VMD (the mouse virtualizer)
+	// what type of mouse we are going to be using
+	if (mouseflags & MOUSEFLAGS_HAS_WIN386) {
+		LPFN vmd_entry = win_get_vxd_api_entry(VMD_DEVICE_ID);
+		if (vmd_entry) {
+			vmd_set_mouse_type(&vmd_entry, VMD_TYPE_PS2, PS2_MOUSE_INT_VECTOR, 0);
+		}
+	}
+
 	return 1;
 }
 
@@ -317,6 +326,6 @@ VOID FAR PASCAL Disable(VOID)
 /** Called by Window to retrieve the interrupt vector number used by this driver, or -1. */
 int FAR PASCAL MouseGetIntVect(VOID)
 {
-	return 0x74; /* This corresponds to IRQ12, the PS/2 IRQ. At least in VirtualBox. */
+	return PS2_MOUSE_INT_VECTOR;
 }
 

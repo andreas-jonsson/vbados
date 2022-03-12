@@ -6,7 +6,7 @@
 	set include=$(%watcom)/h/win;$(%watcom)/h
 
 # The main driver file
-vbmouse.drv: mousew16.c mousew16.h vbox.c vbox.h vboxdev.h ps2.h pci.h vds.h
+vbmouse.drv: mousew16.c mousew16.h vbox.c vbox.h vboxdev.h ps2.h pci.h vds.h int2fwin.h
 	# -bd to build DLL
 	# -mc to use compact memory model (far data pointers, since ss != ds)
 	# -zu for DLL calling convention (ss != ds)

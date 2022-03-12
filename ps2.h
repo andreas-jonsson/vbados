@@ -23,6 +23,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/** Standard PS/2 mouse IRQ. At least on VirtualBox. */
+#define PS2_MOUSE_IRQ        12
+/** The corresponding interrupt vector for IRQ 12. */
+#define PS2_MOUSE_INT_VECTOR 0x74
+
 enum {
 	PS2M_STATUS_BUTTON_1 = 1 << 0,
 	PS2M_STATUS_BUTTON_2 = 1 << 1,
