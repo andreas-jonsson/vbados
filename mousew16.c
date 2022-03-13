@@ -238,21 +238,32 @@ WORD FAR PASCAL Inquire(LPMOUSEINFO lpMouseInfo)
   * @param lpEventProc Callback function to call when a mouse event happens. */
 VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 {
+	// Store the windows-given callback
 	cli(); // Write to far pointer may not be atomic, and we could be interrupted mid-write
 	eventproc = lpEventProc;
 	sti();
 
 	if (!(mouseflags & MOUSEFLAGS_ENABLED)) {
+		// Configure the PS/2 bios and reset the mouse
 		int err;
-		if ((err = ps2_init())) {
+		if ((err = ps2m_init(PS2_MOUSE_PLAIN_PACKET_SIZE))) {
 			vbox_logs("PS2 init failure\n");
 			return;
 		}
-		if ((err = ps2_set_callback(ps2_mouse_callback))) {
+
+		// Configure mouse settings; just use the same defaults as Windows.
+		// Note that protected mode Windows just ignores all of these anyway.
+		ps2m_set_resolution(3);     // 3 = 200 dpi, 8 counts per millimeter
+		ps2m_set_sample_rate(2);    // 2 = 40 reports per second
+		ps2m_set_scaling_factor(1); // 1 = 1:1 scaling
+		// Don't check errors for these, we don't care much
+
+		if ((err = ps2m_set_callback(ps2_mouse_callback))) {
 			vbox_logs("PS2 set handler failure\n");
 			return;
 		}
-		if ((err = ps2_enable(true))) {
+
+		if ((err = ps2m_enable(true))) {
 			vbox_logs("PS2 enable failure\n");
 			return;
 		}
@@ -306,8 +317,8 @@ VOID FAR PASCAL Disable(VOID)
 		}
 #endif
 
-		ps2_enable(false);
-		ps2_set_callback(NULL);
+		ps2m_enable(false);
+		ps2m_set_callback(NULL);
 		vbox_logs("PS2 Disabled!\n");
 
 		mouseflags &= ~MOUSEFLAGS_ENABLED;

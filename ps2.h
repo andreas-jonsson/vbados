@@ -28,7 +28,19 @@
 /** The corresponding interrupt vector for IRQ 12. */
 #define PS2_MOUSE_INT_VECTOR 0x74
 
-enum {
+/** Packet size for plain PS/2 in default protocol. */
+#define PS2_MOUSE_PLAIN_PACKET_SIZE 3
+
+typedef uint8_t ps2m_err;
+enum ps2m_errors {
+	PS2M_ERR_INVALID_FUNCTION = 1,
+	PSM2_ERR_INVALID_INPUT    = 2,
+	PSM2_ERR_INTERFACE_ERROR  = 3,
+	PSM2_ERR_RESEND           = 4,
+	PSM2_ERR_NO_CALLBACK      = 5,
+};
+
+enum ps2m_status {
 	PS2M_STATUS_BUTTON_1 = 1 << 0,
 	PS2M_STATUS_BUTTON_2 = 1 << 1,
 	PS2M_STATUS_BUTTON_3 = 1 << 2,
@@ -38,8 +50,19 @@ enum {
 	PS2M_STATUS_Y_OVF    = 1 << 7,
 };
 
+enum ps2m_device_ids {
+	/** Standard PS/2 mouse, 2 buttons. */
+	PS2M_DEVICE_ID_PLAIN = 0,
+	/** IntelliMouse PS/2, with wheel. */
+	PS2M_DEVICE_ID_IMPS2 = 3,
+	/** IntelliMouse Explorer, wheel and 5 buttons. */
+	PS2M_DEVICE_ID_IMEX = 4,
+	/** IntelliMouse Explorer, wheel, 5 buttons, and horizontal scrolling. */
+	PS2M_DEVICE_ID_IMEX_HORZ = 5
+};
+
 #pragma aux PS2_CB far loadds parm reverse caller []
-// TODO: ax and es look not be preserved with this. VBox BIOS already preserves them though.
+// TODO: ax and es look not be preserved with this. VBox BIOS already preserves them though, as well as 32-bit registers
 
 /** Invoked by the BIOS when there is a mouse event.
  *  @param status combination of PS2M_STATUS_* flags */
@@ -51,76 +74,115 @@ static inline void cli(void);
 static inline void sti(void);
 #pragma aux sti = "sti"
 
-static uint8_t ps2_init(void);
-#pragma aux ps2_init = \
-	"stc"              /* If nothing happens, assume failure */ \
-	"mov ax, 0xC205"   /* Pointing device: initialization */ \
-	"mov bh, 3"        /* Use 3 byte packets */ \
+static ps2m_err ps2m_init(uint8_t packet_size);
+#pragma aux ps2m_init = \
+	"stc"               /* If nothing happens, assume failure */ \
+	"mov ax, 0xC205"    /* Pointing device: initialization (packet size in bh) */ \
 	"int 0x15" \
-	"jc fail" \
-	\
-	"mov ax, 0xC201"   /* Pointing device: reset */ \
-	"int 0x15" \
-	"jc fail" \
-	\
-	"mov ax, 0xC203"   /* Pointing device: set resolution */ \
-	"mov bh, 3"        /* 3 count per mm = ~ 200 ppi */ \
-	"int 0x15" \
-	"jc fail" \
-	\
-	"mov ax, 0xC202"   /* Pointing device: set sample rate*/ \
-	"mov bh, 5"        /* 2: 40 samples per second */ \
-	"int 0x15" \
-	"jc fail" \
-	\
-	"mov ax, 0xC206"   /* Pointing device: extended commands */ \
-	"mov bh, 1"        /* Set 1:1 scaling */ \
-	"int 0x15" \
-	"jc fail" \
-	\
-	"mov ah, 0"        /* Success */ \
-	"jmp end" \
-	\
-	"fail: test ah, ah" /* Ensure we have some error code back, set ah to ff if we don't */ \
+	"jnc end"           /* Success */ \
+	"fail: test ah, ah" /* Ensure we have some error code back, set ah to -1 if we don't */ \
 	"jnz end" \
-	"mov ah, 0xFF" \
+	"dec ah" \
+	"end:" \
+	__parm [bh] \
+	__value [ah] \
+	__modify [ax]
+
+static ps2m_err ps2m_reset(void);
+#pragma aux ps2m_reset = \
+	"stc" \
+	"mov ax, 0xC201"    /* Pointing device: reset */ \
+	"int 0x15" \
+	"jnc end" \
+	"fail: test ah, ah" \
+	"jnz end" \
+	"dec ah" \
 	"end:" \
 	__value [ah] \
 	__modify [ax]
 
-static uint8_t ps2_set_callback(LPFN_PS2CALLBACK callback);
-#pragma aux ps2_set_callback = \
-	"stc"              /* If nothing happens, assume failure */ \
+static ps2m_err ps2m_get_device_id(uint8_t *device_id);
+#pragma aux ps2m_get_device_id = \
+	"stc" \
+	"mov ax, 0xC201"    /* Pointing device: reset */ \
+	"int 0x15" \
+	"mov es:[di], bh"   /* Save returned value */ \
+	"jnc end" \
+	"fail: test ah, ah" \
+	"jnz end" \
+	"dec ah" \
+	"end:" \
+	__parm [es di] \
+	__value [ah] \
+	__modify [ax]
+
+static ps2m_err ps2m_set_resolution(uint8_t resolution);
+#pragma aux ps2m_set_resolution = \
+	"stc" \
+	"mov ax, 0xC203"    /* Pointing device: set resolution (in bh) */ \
+	"int 0x15" \
+	"jnc end" \
+	"fail: test ah, ah" \
+	"jnz end" \
+	"dec ah" \
+	"end:" \
+	__parm [bh] \
+	__value [ah] \
+	__modify [ax]
+
+static ps2m_err ps2m_set_sample_rate(uint8_t sample_rate);
+#pragma aux ps2m_set_sample_rate = \
+	"stc" \
+	"mov ax, 0xC202"    /* Pointing device: set sample rate (in bh) */ \
+	"int 0x15" \
+	"jnc end" \
+	"fail: test ah, ah" \
+	"jnz end" \
+	"dec ah" \
+	"end:" \
+	__parm [bh] \
+	__value [ah] \
+	__modify [ax]
+
+static ps2m_err ps2m_set_scaling_factor(uint8_t scaling_factor);
+#pragma aux ps2m_set_scaling_factor = \
+	"stc" \
+	"mov ax, 0xC206"    /* Pointing device: extended commands (with bh > 0, set scaling factor) */ \
+	"int 0x15" \
+	"jnc end" \
+	"fail: test ah, ah" \
+	"jnz end" \
+	"dec ah" \
+	"end:" \
+	__parm [bh] \
+	__value [ah] \
+	__modify [ax]
+
+static ps2m_err ps2m_set_callback(LPFN_PS2CALLBACK callback);
+#pragma aux ps2m_set_callback = \
+	"stc" \
 	"mov ax, 0xC207"   /* Pointing device: set interrupt callback (in es:bx) */ \
 	"int 0x15" \
-	"jc fail" \
-	\
-	"mov ah, 0"        /* Success */ \
-	"jmp end" \
-	\
-	"fail: test ah, ah" /* Ensure we have some error code back */ \
+	"jnc end" \
+	"fail: test ah, ah" \
 	"jnz end" \
-	"mov ah, 0xFF" \
+	"dec ah" \
 	"end:" \
 	__parm [es bx] \
 	__value [ah] \
 	__modify [ax]
 
-static uint8_t ps2_enable(bool enable);
-#pragma aux ps2_enable = \
+static ps2m_err ps2m_enable(bool enable);
+#pragma aux ps2m_enable = \
 	"test bh, bh"      /* Ensure enable is either 1 or 0 */ \
 	"setnz bh" \
-	"stc"              /* If nothing happens, assume failure */ \
+	"stc" \
 	"mov ax, 0xC200"   /* Pointing device enable/disable (in bh) */ \
 	"int 0x15" \
-	"jc fail" \
-	\
-	"mov ah, 0"        /* Success */ \
-	"jmp end" \
-	\
-	"fail: test ah, ah" /* Ensure we have some error code back */ \
+	"jnc end" \
+	"fail: test ah, ah" \
 	"jnz end" \
-	"mov ah, 0xFF" \
+	"dec ah" \
 	"end:" \
 	__parm [bh] \
 	__value [ah] \
