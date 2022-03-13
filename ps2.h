@@ -104,7 +104,7 @@ static ps2m_err ps2m_reset(void);
 static ps2m_err ps2m_get_device_id(uint8_t *device_id);
 #pragma aux ps2m_get_device_id = \
 	"stc" \
-	"mov ax, 0xC201"    /* Pointing device: reset */ \
+	"mov ax, 0xC204"    /* Pointing device: get device ID */ \
 	"int 0x15" \
 	"mov es:[di], bh"   /* Save returned value */ \
 	"jnc end" \
