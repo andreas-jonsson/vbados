@@ -5,13 +5,21 @@ with paging on, as well as Windows 95 (Windows 9x can use 16-bit mouse drivers).
 
 # Install
 
-Just copy vbmouse.drv to your WINDOWS\SYSTEM directory and edit WINDOWS\SYSTEM.INI 's mouse.drv line to point to it, e.g.
+Download [vbmouse.flp](https://depot.javispedro.com/vbox/vbmouse1.flp)
+(a floppy image containing vbmouse.drv and oemsetup.inf) and insert it into your virtual machine.
+
+In the Windows Setup program (accessible either via SETUP.EXE on an installed Windows or via
+the corresponding icon in Program Manager), go to
+Options → Change system configuration → Mouse → Select "Other mouse..." → Search in "A:"
+→ "VirtualBox PS/2 Mouse".
+Select the "VirtualBox PS/2 Mouse" in the Mouse section again.
+
+Alternatively, you can copy vbmouse.drv to your WINDOWS\SYSTEM directory and edit WINDOWS\SYSTEM.INI 's mouse.drv line to point to it, e.g.
 
     [boot]
     mouse.drv = vbmouse.drv
 
-For a "proper" installation, you may create a floppy image containing oemsetup.inf and vbmouse.drv
-and point the Windows Setup program to it when it asks for a 3rd party mouse driver disk.
+This later option also works with Windows 9x.
 
 # Building
 
@@ -54,12 +62,4 @@ Thus, the only difference between this driver and a standard PS/2 mouse driver i
 when an interrupt from the mouse comes in, we won't report the relative mouse motion to Windows.
 Rather, we call into VirtualBox (right from the PS/2 BIOS interrupt handler)
 to obtain the absolution mouse position, and report that to Windows.
-
-### Known issues
-
-Unfortunately, when a MS-DOS old application is foregrounded full-screen, this mouse driver will remain active,
-and therefore VirtualBox will not send relative motion data via the PS/2 protocol.
-This means full-screen MS-DOS programs will see a PS/2 mouse and will receive button presses from it, but will not
-receive mouse motion. The driver would need to deactivative itself in response to a full-screen MS-DOS VM, perhaps
-by hooking interrupt 2Fh function 4002h (Notify Foreground Switch) or the like.
 
