@@ -50,7 +50,7 @@ static pcierr pci_init_bios(void);
 	__value [ah] \
 	__modify [ax bx cx dx]
 
-static pcierr pci_find_device(pcisel *sel, unsigned short vendor_id, unsigned short dev_id, unsigned short index);
+static pcierr pci_find_device(pcisel __far *sel, unsigned short vendor_id, unsigned short dev_id, unsigned short index);
 #pragma aux pci_find_device = \
 	"mov ax, 0xB102" \
 	"int 0x1A" \
@@ -63,7 +63,7 @@ static pcierr pci_find_device(pcisel *sel, unsigned short vendor_id, unsigned sh
 
 /* Reading from configuration space */
 
-static pcierr pci_read_config_byte(pcisel sel, unsigned char reg, unsigned char *data);
+static pcierr pci_read_config_byte(pcisel sel, unsigned char reg, unsigned char __far *data);
 #pragma aux pci_read_config_byte = \
 	"mov ax, 0xB108" \
 	"int 0x1A" \
@@ -72,7 +72,7 @@ static pcierr pci_read_config_byte(pcisel sel, unsigned char reg, unsigned char 
 	__value [ah] \
 	__modify [ax cx]
 
-static pcierr pci_read_config_word(pcisel sel, unsigned char reg, unsigned short *data);
+static pcierr pci_read_config_word(pcisel sel, unsigned char reg, unsigned short __far *data);
 #pragma aux pci_read_config_word = \
 	"mov ax, 0xB109" \
 	"int 0x1A" \
@@ -81,7 +81,7 @@ static pcierr pci_read_config_word(pcisel sel, unsigned char reg, unsigned short
 	__value [ah] \
 	__modify [ax cx]
 
-static pcierr pci_read_config_dword(pcisel sel, unsigned char reg, unsigned long *data);
+static pcierr pci_read_config_dword(pcisel sel, unsigned char reg, unsigned long __far *data);
 #pragma aux pci_read_config_dword = \
 	"mov ax, 0xB10A" \
 	"int 0x1A" \

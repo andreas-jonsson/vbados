@@ -1,0 +1,11 @@
+system windows_dll
+option map=w16mouse.map
+option modname=MOUSE   # This is necessary; USER.EXE imports mouse functions using this module name
+option description 'VirtualBox Mouse driver'
+
+segment CALLBACKS fixed shared      # We need a non-moveable segment to store our callback routines
+
+export Inquire.1
+export Enable.2
+export Disable.3
+export MouseGetIntVect.4

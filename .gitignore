@@ -1,5 +1,7 @@
 vbmouse.drv
-vbmouse.map
+vbmouse.exe
 vbmouse.flp
 *.o
+*.obj
+*.map
 runvm.sh

@@ -353,6 +353,18 @@ AssertCompileSize(VMMDevReqMouseStatus, 24+12);
 #define VMMDEV_MOUSE_RANGE (VMMDEV_MOUSE_RANGE_MAX - VMMDEV_MOUSE_RANGE_MIN)
 /** @} */
 
+/** @name VBVAMOUSEPOINTERSHAPE::fu32Flags
+ * @note The VBOX_MOUSE_POINTER_* flags are used in the guest video driver,
+ *       values must be <= 0x8000 and must not be changed. (try make more sense
+ *       of this, please).
+ * @{
+ */
+/** pointer is visible */
+#define VBOX_MOUSE_POINTER_VISIBLE (0x0001)
+/** pointer has alpha channel */
+#define VBOX_MOUSE_POINTER_ALPHA   (0x0002)
+/** pointerData contains new pointer shape */
+#define VBOX_MOUSE_POINTER_SHAPE   (0x0004)
 
 /**
  * Mouse pointer shape/visibility change request.
@@ -400,6 +412,7 @@ typedef struct VMMDevReqMousePointer
      */
     char pointerData[4];
 } VMMDevReqMousePointer;
+AssertCompileSize(VMMDevReqMousePointer, 24+24);
 
 /**
  * Pending events structure.

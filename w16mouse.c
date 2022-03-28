@@ -19,20 +19,14 @@
 
 #include <windows.h>
 
-#include "vbox.h"
-#include "vboxdev.h"
-#include "ps2.h"
+#include "dlog.h"
+#include "utils.h"
+#include "int33.h"
 #include "int2fwin.h"
-#include "mousew16.h"
+#include "w16mouse.h"
 
-/** If 1, actually call VBox services.
- *  Thus, if 0, this should behave like a plain PS/2 mouse driver. */
-#define ENABLE_VBOX 1
 /** If 1, hook int2f to detect fullscreen DOSBoxes and auto-disable this driver. */
-#define HOOK_INT2F  1
-
-/** Logging through the virtualbox backdoor. */
-#define log(...) vbox_logs(__VA_ARGS__)
+#define HOOK_INT2F  0
 
 #define MOUSE_NUM_BUTTONS 2
 
@@ -47,10 +41,10 @@ enum {
 	MOUSEFLAGS_HAS_WIN386   = 1 << 3,
 	MOUSEFLAGS_INT2F_HOOKED = 1 << 4
 };
-/** Last received pressed button status (to compare and see which buttons have been pressed). */
-static unsigned char mousebtnstatus;
+#if HOOK_INT2F
 /** Existing interrupt2f handler. */
 static LPFN prev_int2f_handler;
+#endif
 
 /* This is how events are delivered to Windows */
 
@@ -58,58 +52,37 @@ static void send_event(unsigned short Status, short deltaX, short deltaY, short 
 #pragma aux (MOUSEEVENTPROC) send_event = \
 	"call dword ptr [eventproc]"
 
-/* PS/2 BIOS mouse callback. */
-
 #pragma code_seg ( "CALLBACKS" )
-static void FAR ps2_mouse_callback(uint8_t status, uint8_t x, uint8_t y, uint8_t z)
+
+static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t x, int16_t y, int16_t delta_x, int16_t delta_y)
+#pragma aux (INT33_CB) int33_mouse_callback
 {
-#pragma aux (PS2_CB) ps2_mouse_callback
+	int status = 0;
 
-	int sstatus = 0;
-	int sx =   status & PS2M_STATUS_X_NEG ? 0xFF00 | x : x;
-	int sy = -(status & PS2M_STATUS_Y_NEG ? 0xFF00 | y : y);
+	if (events & INT33_EVENT_MASK_LEFT_BUTTON_PRESSED)   status |= SF_B1_DOWN;
+	if (events & INT33_EVENT_MASK_LEFT_BUTTON_RELEASED)  status |= SF_B1_UP;
+	if (events & INT33_EVENT_MASK_RIGHT_BUTTON_PRESSED)  status |= SF_B2_DOWN;
+	if (events & INT33_EVENT_MASK_RIGHT_BUTTON_RELEASED) status |= SF_B2_UP;
 
-	if (!(mouseflags & MOUSEFLAGS_ENABLED)) {
-		// Likely eventproc is invalid
-		return;
+	if (events & INT33_EVENT_MASK_MOVEMENT) {
+		status |= SF_MOVEMENT | SF_ABSOLUTE;
 	}
 
-	if (sx || sy) {
-		sstatus |= SF_MOVEMENT;
-	}
+	(void) buttons;
+	(void) delta_x;
+	(void) delta_y;
 
-#if ENABLE_VBOX
-	if ((sstatus & SF_MOVEMENT) && (mouseflags & MOUSEFLAGS_VBOX_ENABLED)) {
-		bool abs;
-		uint16_t vbx, vby;
-		// Even if we are connected to VBox, the user may have selected to disable abs positioning
-		// So only report abs coordinates if it is still enabled.
-		if (vbox_get_mouse_locked(&abs, &vbx, &vby) == 0 && abs) {
-			sx = vbx;
-			sy = vby;
-			sstatus |= SF_ABSOLUTE;
-		}
-	}
+#if 0
+	dlog_print("w16mouse: event status=");
+	dlog_printx(status);
+	dlog_print(" x=");
+	dlog_printx(x);
+	dlog_print(" y=");
+	dlog_printx(y);
+	dlog_endline();
 #endif
 
-	// Now proceed to see which buttons have been pressed down and/or released
-	if ((mousebtnstatus & PS2M_STATUS_BUTTON_1) && !(status & PS2M_STATUS_BUTTON_1)) {
-		sstatus |= SF_B1_UP;
-	} else if (!(mousebtnstatus & PS2M_STATUS_BUTTON_1) && (status & PS2M_STATUS_BUTTON_1)) {
-		sstatus |= SF_B1_DOWN;
-	}
-
-	if ((mousebtnstatus & PS2M_STATUS_BUTTON_2) && !(status & PS2M_STATUS_BUTTON_2)) {
-		sstatus |= SF_B2_UP;
-	} else if (!(mousebtnstatus & PS2M_STATUS_BUTTON_2) && (status & PS2M_STATUS_BUTTON_2)) {
-		sstatus |= SF_B2_DOWN;
-	}
-
-	mousebtnstatus = status & (PS2M_STATUS_BUTTON_1 | PS2M_STATUS_BUTTON_2);
-
-	if (sstatus) {
-		send_event(sstatus, sx, sy, MOUSE_NUM_BUTTONS, 0, 0);
-	}
+	send_event(status, (uint16_t)(x) * 2, (uint16_t)(y) * 2, MOUSE_NUM_BUTTONS, 0, 0);
 }
 
 #if HOOK_INT2F
@@ -123,12 +96,10 @@ static void display_switch_handler(int function)
 
 	switch (function) {
 	case INT2F_NOTIFY_BACKGROUND_SWITCH:
-		vbox_logs("Going background\n");
-		vbox_set_mouse_locked(false);
+		dlog_puts("Going background\n");
 		break;
 	case INT2F_NOTIFY_FOREGROUND_SWITCH:
-		vbox_logs("Going foreground\n");
-		vbox_set_mouse_locked(true);
+		dlog_puts("Going foreground\n");
 		break;
 	}
 }
@@ -202,22 +173,12 @@ BOOL FAR PASCAL LibMain(HINSTANCE hInstance, WORD wDataSegment,
 	}
 #endif
 
-#if ENABLE_VBOX
-	// However we will check whether VirtualBox exists:
-	if (vbox_init() == 0) {
-		vbox_logs("VirtualBox found\n");
-
-		// VirtualBox connection was succesful, remember that
-		mouseflags |= MOUSEFLAGS_HAS_VBOX;
-	}
-#endif
-
 	// When running under protected mode Windows, let's tell VMD (the mouse virtualizer)
 	// what type of mouse we are going to be using
 	if (mouseflags & MOUSEFLAGS_HAS_WIN386) {
 		LPFN vmd_entry = win_get_vxd_api_entry(VMD_DEVICE_ID);
 		if (vmd_entry) {
-			vmd_set_mouse_type(&vmd_entry, VMD_TYPE_PS2, PS2_MOUSE_INT_VECTOR, 0);
+			vmd_set_mouse_type(&vmd_entry, VMD_TYPE_PS2, 0x33, 0);
 		}
 	}
 
@@ -228,9 +189,9 @@ BOOL FAR PASCAL LibMain(HINSTANCE hInstance, WORD wDataSegment,
 WORD FAR PASCAL Inquire(LPMOUSEINFO lpMouseInfo)
 {
 	lpMouseInfo->msExist = 1;
-	lpMouseInfo->msRelative = mouseflags & MOUSEFLAGS_HAS_VBOX ? 0 : 1;
+	lpMouseInfo->msRelative = 0;
 	lpMouseInfo->msNumButtons = MOUSE_NUM_BUTTONS;
-	lpMouseInfo->msRate = 40;
+	lpMouseInfo->msRate = 80;
 	return sizeof(MOUSEINFO);
 }
 
@@ -244,59 +205,25 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 	sti();
 
 	if (!(mouseflags & MOUSEFLAGS_ENABLED)) {
-		// Configure the PS/2 bios and reset the mouse
-		int err;
-		if ((err = ps2m_init(PS2_MOUSE_PLAIN_PACKET_SIZE))) {
-			vbox_logs("PS2 init failure\n");
-			return;
-		}
+		dlog_puts("w16mouse: enable");
 
-		// Configure mouse settings; just use the same defaults as Windows.
-		// Note that protected mode Windows just ignores all of these anyway.
-		ps2m_set_resolution(3);     // 3 = 200 dpi, 8 counts per millimeter
-		ps2m_set_sample_rate(2);    // 2 = 40 reports per second
-		ps2m_set_scaling_factor(1); // 1 = 1:1 scaling
-		// Don't check errors for these, we don't care much
+		int33_reset();
 
-		if ((err = ps2m_set_callback(ps2_mouse_callback))) {
-			vbox_logs("PS2 set handler failure\n");
-			return;
-		}
+		int33_set_horizontal_window(0, 0x7FFF);
+		int33_set_vertical_window(0, 0x7FFF);
 
-		if ((err = ps2m_enable(true))) {
-			vbox_logs("PS2 enable failure\n");
-			return;
-		}
+		int33_set_event_handler(INT33_EVENT_MASK_ALL, int33_mouse_callback);
 
-		vbox_logs("PS/2 Enabled!\n");
+		dlog_puts("w16mouse: int33 enabled");
+
 		mouseflags |= MOUSEFLAGS_ENABLED;
-
-#if ENABLE_VBOX
-		if (mouseflags & MOUSEFLAGS_HAS_VBOX) {
-			if ((err = vbox_alloc_buffers())) {
-				vbox_logs("VBox alloc failure\n");
-				return;
-			}
-
-			vbox_report_guest_info(VBOXOSTYPE_Win31);
-
-			if ((err = vbox_set_mouse(true))) {
-				vbox_logs("VBox enable failure\n");
-				vbox_free_buffers();
-				return;
-			}
-
-			vbox_logs("VBOX Enabled!\n");
-			mouseflags |= MOUSEFLAGS_VBOX_ENABLED;
-		}
-#endif
 
 #if HOOK_INT2F
 		if ((mouseflags & MOUSEFLAGS_HAS_WIN386) && (mouseflags & MOUSEFLAGS_VBOX_ENABLED)) {
 			cli();
 			hook_int2f(&prev_int2f_handler, int2f_handler);
 			sti();
-			vbox_logs("int2F hooked!\n");
+			dlog_puts("int2F hooked!\n");
 			mouseflags |= MOUSEFLAGS_INT2F_HOOKED;
 		}
 #endif
@@ -307,36 +234,28 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 VOID FAR PASCAL Disable(VOID)
 {
 	if (mouseflags & MOUSEFLAGS_ENABLED) {
+		dlog_puts("w16mouse: disable");
+
 #if HOOK_INT2F
 		if (mouseflags & MOUSEFLAGS_INT2F_HOOKED) {
 			cli();
 			unhook_int2f(prev_int2f_handler);
 			sti();
-			vbox_logs("int2F unhooked!\n");
+			dlog_puts("int2F unhooked!\n");
 			mouseflags &= ~MOUSEFLAGS_INT2F_HOOKED;
 		}
 #endif
 
-		ps2m_enable(false);
-		ps2m_set_callback(NULL);
-		vbox_logs("PS2 Disabled!\n");
+		int33_reset();
+		dlog_puts("w16mouse: int33 reset");
 
 		mouseflags &= ~MOUSEFLAGS_ENABLED;
-
-#if ENABLE_VBOX
-		if (mouseflags & MOUSEFLAGS_VBOX_ENABLED) {
-			vbox_set_mouse(false);
-			vbox_free_buffers();
-			vbox_logs("VBOX Disabled!\n");
-			mouseflags &= ~MOUSEFLAGS_VBOX_ENABLED;
-		}
-#endif
 	}
 }
 
 /** Called by Window to retrieve the interrupt vector number used by this driver, or -1. */
 int FAR PASCAL MouseGetIntVect(VOID)
 {
-	return PS2_MOUSE_INT_VECTOR;
+	return 0x33;
 }
 

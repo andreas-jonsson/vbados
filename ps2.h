@@ -68,12 +68,6 @@ enum ps2m_device_ids {
  *  @param status combination of PS2M_STATUS_* flags */
 typedef void (__far * LPFN_PS2CALLBACK)(uint8_t status, uint8_t x, uint8_t y, uint8_t z);
 
-static inline void cli(void);
-#pragma aux cli = "cli"
-
-static inline void sti(void);
-#pragma aux sti = "sti"
-
 static ps2m_err ps2m_init(uint8_t packet_size);
 #pragma aux ps2m_init = \
 	"stc"               /* If nothing happens, assume failure */ \
@@ -116,6 +110,10 @@ static ps2m_err ps2m_get_device_id(uint8_t *device_id);
 	__value [ah] \
 	__modify [ax]
 
+//      0 =  25 dpi, 1 count  per millimeter
+//      1 =  50 dpi, 2 counts per millimeter
+//      2 = 100 dpi, 4 counts per millimeter
+//      3 = 200 dpi, 8 counts per millimeter
 static ps2m_err ps2m_set_resolution(uint8_t resolution);
 #pragma aux ps2m_set_resolution = \
 	"stc" \
@@ -130,6 +128,13 @@ static ps2m_err ps2m_set_resolution(uint8_t resolution);
 	__value [ah] \
 	__modify [ax]
 
+//   0 = 10 reports/sec
+//   1 = 20 reports/sec
+//   2 = 40 reports/sec
+//   3 = 60 reports/sec
+//   4 = 80 reports/sec
+//   5 = 100 reports/sec (default)
+//   6 = 200 reports/sec
 static ps2m_err ps2m_set_sample_rate(uint8_t sample_rate);
 #pragma aux ps2m_set_sample_rate = \
 	"stc" \

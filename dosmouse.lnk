@@ -1,0 +1,9 @@
+system dos
+option map=dosmouse.map
+# Put the resident text & data first, then the rest of standard classses
+order clname RES_CODE
+      clname FAR_DATA
+      clname CODE segment BEGTEXT segment _TEXT
+      clname BEGDATA
+      clname DATA
+      clname BSS
