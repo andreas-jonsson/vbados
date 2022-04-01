@@ -62,7 +62,7 @@ extern int vbox_init(LPVBOXCOMM vb);
 
 /** Lets VirtualBox know that there are VirtualBox Guest Additions on this guest.
   * @param osType os installed on this guest. */
-static inline int vbox_report_guest_info(LPVBOXCOMM vb, uint32_t osType)
+static int vbox_report_guest_info(LPVBOXCOMM vb, uint32_t osType)
 {
 	VMMDevReportGuestInfo __far *req = (void __far *) vb->buf;
 
@@ -81,7 +81,7 @@ static inline int vbox_report_guest_info(LPVBOXCOMM vb, uint32_t osType)
 }
 
 /** Tells VirtualBox whether we want absolute mouse information or not. */
-static inline int vbox_set_mouse(LPVBOXCOMM vb, bool absolute, bool pointer)
+static int vbox_set_mouse(LPVBOXCOMM vb, bool absolute, bool pointer)
 {
 	VMMDevReqMouseStatus __far *req = (void __far *) vb->buf;
 
@@ -102,8 +102,8 @@ static inline int vbox_set_mouse(LPVBOXCOMM vb, bool absolute, bool pointer)
 /** Gets the current absolute mouse position from VirtualBox.
   * @param abs false if user has disabled mouse integration in VirtualBox,
   *  in which case we should fallback to PS/2 relative events. */
-static inline int vbox_get_mouse(LPVBOXCOMM vb, bool *abs,
-                                 uint16_t *xpos, uint16_t *ypos)
+static int vbox_get_mouse(LPVBOXCOMM vb, bool __far *abs,
+                          uint16_t __far *xpos, uint16_t __far *ypos)
 {
 	VMMDevReqMouseStatus __far *req = (void __far *) vb->buf;
 
@@ -124,7 +124,7 @@ static inline int vbox_get_mouse(LPVBOXCOMM vb, bool *abs,
 }
 
 /** @todo */
-static inline int vbox_set_pointer_visible(LPVBOXCOMM vb, bool visible)
+static int vbox_set_pointer_visible(LPVBOXCOMM vb, bool visible)
 {
 	VMMDevReqMousePointer __far *req = (void __far *) vb->buf;
 
@@ -136,47 +136,6 @@ static inline int vbox_set_pointer_visible(LPVBOXCOMM vb, bool visible)
 	req->header.rc = -1;
 
 	if (visible) req->fFlags |= VBOX_MOUSE_POINTER_VISIBLE;
-
-	vbox_send_request(vb->iobase, vb->buf_physaddr);
-
-	return req->header.rc;
-}
-
-static inline unsigned vbox_pointer_shape_data_size(unsigned width, unsigned height)
-{
-	//unsigned base_size = 24 + 20;
-	unsigned and_mask_size = (width + 7) / 8 * height;
-	unsigned xor_mask_size = width * height * 4;
-	return ((and_mask_size + 3) & ~3) + xor_mask_size;
-}
-
-static inline int vbox_set_pointer_shape(LPVBOXCOMM vb,
-                                         uint16_t xHot, uint16_t yHot,
-                                         uint16_t width, uint16_t height,
-                                         char __far *data)
-{
-	VMMDevReqMousePointer __far *req = (void __far *) vb->buf;
-	unsigned data_size = vbox_pointer_shape_data_size(width, height);
-	unsigned full_size = MAX(sizeof(VMMDevReqMousePointer), 24 + 20 + data_size);
-
-	if (full_size >= VBOX_BUFFER_SIZE) {
-		return -2;
-	}
-
-	bzero(req, full_size);
-
-	req->header.size = full_size;
-	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
-	req->header.requestType = VMMDevReq_SetPointerShape;
-	req->header.rc = -1;
-
-	req->fFlags = VBOX_MOUSE_POINTER_SHAPE;
-	req->xHot = xHot;
-	req->yHot = yHot;
-	req->width = width;
-	req->height = height;
-
-	ffmemcpy(req->pointerData, data, data_size);
 
 	vbox_send_request(vb->iobase, vb->buf_physaddr);
 

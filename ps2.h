@@ -28,9 +28,6 @@
 /** The corresponding interrupt vector for IRQ 12. */
 #define PS2_MOUSE_INT_VECTOR 0x74
 
-/** Packet size for plain PS/2 in default protocol. */
-#define PS2_MOUSE_PLAIN_PACKET_SIZE 3
-
 typedef uint8_t ps2m_err;
 enum ps2m_errors {
 	PS2M_ERR_INVALID_FUNCTION = 1,
@@ -50,6 +47,11 @@ enum ps2m_status {
 	PS2M_STATUS_Y_OVF    = 1 << 7,
 };
 
+enum ps2m_packet_size {
+	PS2M_PACKET_SIZE_PLAIN = 3,
+	PS2M_PACKET_SIZE_EXT   = 4,
+};
+
 enum ps2m_device_ids {
 	/** Standard PS/2 mouse, 2 buttons. */
 	PS2M_DEVICE_ID_PLAIN = 0,
@@ -59,6 +61,23 @@ enum ps2m_device_ids {
 	PS2M_DEVICE_ID_IMEX = 4,
 	/** IntelliMouse Explorer, wheel, 5 buttons, and horizontal scrolling. */
 	PS2M_DEVICE_ID_IMEX_HORZ = 5
+};
+
+enum ps2m_resolution {
+	PS2M_RESOLUTION_25  = 0,
+	PS2M_RESOLUTION_50  = 1,
+	PS2M_RESOLUTION_100 = 2,
+	PS2M_RESOLUTION_200 = 3
+};
+
+enum ps2m_sample_rate {
+	PS2M_SAMPLE_RATE_10  = 0,
+	PS2M_SAMPLE_RATE_20  = 1,
+	PS2M_SAMPLE_RATE_40  = 2,
+	PS2M_SAMPLE_RATE_60  = 3,
+	PS2M_SAMPLE_RATE_80  = 4,
+	PS2M_SAMPLE_RATE_100 = 5,
+	PS2M_SAMPLE_RATE_200 = 6
 };
 
 #pragma aux PS2_CB far loadds parm reverse caller []
@@ -95,7 +114,7 @@ static ps2m_err ps2m_reset(void);
 	__value [ah] \
 	__modify [ax]
 
-static ps2m_err ps2m_get_device_id(uint8_t *device_id);
+static ps2m_err ps2m_get_device_id(uint8_t __far *device_id);
 #pragma aux ps2m_get_device_id = \
 	"stc" \
 	"mov ax, 0xC204"    /* Pointing device: get device ID */ \
@@ -110,10 +129,6 @@ static ps2m_err ps2m_get_device_id(uint8_t *device_id);
 	__value [ah] \
 	__modify [ax]
 
-//      0 =  25 dpi, 1 count  per millimeter
-//      1 =  50 dpi, 2 counts per millimeter
-//      2 = 100 dpi, 4 counts per millimeter
-//      3 = 200 dpi, 8 counts per millimeter
 static ps2m_err ps2m_set_resolution(uint8_t resolution);
 #pragma aux ps2m_set_resolution = \
 	"stc" \
@@ -128,13 +143,6 @@ static ps2m_err ps2m_set_resolution(uint8_t resolution);
 	__value [ah] \
 	__modify [ax]
 
-//   0 = 10 reports/sec
-//   1 = 20 reports/sec
-//   2 = 40 reports/sec
-//   3 = 60 reports/sec
-//   4 = 80 reports/sec
-//   5 = 100 reports/sec (default)
-//   6 = 200 reports/sec
 static ps2m_err ps2m_set_sample_rate(uint8_t sample_rate);
 #pragma aux ps2m_set_sample_rate = \
 	"stc" \
@@ -192,5 +200,40 @@ static ps2m_err ps2m_enable(bool enable);
 	__parm [bh] \
 	__value [ah] \
 	__modify [ax]
+
+static void ps2m_send_imps2_sequence(void)
+{
+	ps2m_set_sample_rate(PS2M_SAMPLE_RATE_200);
+	ps2m_set_sample_rate(PS2M_SAMPLE_RATE_100);
+	ps2m_set_sample_rate(PS2M_SAMPLE_RATE_80);
+}
+
+static bool ps2m_detect_wheel(void)
+{
+	int err;
+	uint8_t device_id;
+
+	// Switch to the 4-byte packet and reset the mouse.
+	// We are not supposed to receive messages at this time anyway.
+	err = ps2m_init(PS2M_PACKET_SIZE_EXT);
+	if (err) {
+		return false;
+	}
+
+	// Get the initial mouse device id
+	err = ps2m_get_device_id(&device_id);
+	if (err || device_id != 0) {
+		// TODO : Likely have to accept more device_ids here.
+		return false;
+	}
+
+	// Send the knock sequence to activate the extended packet
+	ps2m_send_imps2_sequence();
+
+	// Now check if the device id has changed
+	err = ps2m_get_device_id(&device_id);
+
+	return err == 0 && device_id == PS2M_DEVICE_ID_IMPS2;
+}
 
 #endif

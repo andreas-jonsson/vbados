@@ -24,10 +24,27 @@
 #include <stdint.h>
 #include <dos.h>
 
+struct win386_instance_item
+{
+	void __far * ptr;
+	uint16_t     size;
+};
+
+struct win386_startup_info
+{
+	uint16_t version;
+	struct win386_startup_info __far * next;
+	char __far * device_driver;
+	void __far * device_driver_data;
+	struct win386_instance_item __far *instance_data;
+};
+
 typedef void (__far *LPFN)(void);
 
 enum int2f_functions
 {
+	INT2F_NOTIFY_WIN386_STARTUP = 0x1605,
+
 	INT2F_NOTIFY_BACKGROUND_SWITCH = 0x4001,
 	INT2F_NOTIFY_FOREGROUND_SWITCH = 0x4002
 };

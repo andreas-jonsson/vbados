@@ -2,15 +2,17 @@
 # Assuming you have sourced `owsetenv` beforehand.
 # 
 dosobjs = dostsr.obj dosmain.obj vbox.obj
-doscflags = -bt=dos -ms -s -6 -os -w3
-# -ms to use small memory model
-# -s to disable stack checks, since it inserts calls to the runtime from the TSR part
+doscflags = -bt=dos -ms -6 -os -w3
+# -ms to use small memory model (though sometimes ss != ds...)
 # -os to optimize for size
+dostsrcflags = -zu -s -g=RES_GROUP -nd=RES -nt=RES_TEXT -nc=RES_CODE
+# -s to disable stack checks, since it inserts calls to the runtime from the TSR part
+# -zu since ss != ds on the TSR
 
 w16objs = w16mouse.obj
 w16cflags = -bt=windows -bd -mc -zu -s -6 -w3
 # -bd to build DLL
-# -mc to use compact memory model (far data pointers, since ss != ds)
+# -mc to use compact memory model (far data pointers, ss != ds always)
 # -zu for DLL calling convention (ss != ds)
 # -s to disable stack checks, since the runtime uses MessageBox() to abort (which we can't call from mouse.drv)
 
@@ -23,13 +25,13 @@ vbmouse.exe: dosmouse.lnk $(dosobjs)
 	wlink @$[@ name $@ file { $(dosobjs) } 
 
 dostsr.obj: dostsr.c .AUTODEPEND
-	wcc -fo=$^@ $(doscflags) -g=RES_GROUP -nd=RES -nt=RES_TEXT -nc=RES_CODE $[@
+	wcc -fo=$^@ $(doscflags) $(dostsrcflags) $[@
 
 dosmain.obj: dosmain.c .AUTODEPEND
 	wcc -fo=$^@ $(doscflags) $[@
 
 vbox.obj: vbox.c .AUTODEPEND
-        wcc -fo=$^@ $(doscflags) $[@
+	wcc -fo=$^@ $(doscflags) $[@
 
 vbmouse.drv: w16mouse.lnk $(w16objs)
 	wlink @$[@ name $@ file { $(w16objs) }

@@ -19,11 +19,12 @@
 
 #include <windows.h>
 
-#include "dlog.h"
 #include "utils.h"
 #include "int33.h"
 #include "int2fwin.h"
 #include "w16mouse.h"
+
+#define TRACE_EVENT 1
 
 /** If 1, hook int2f to detect fullscreen DOSBoxes and auto-disable this driver. */
 #define HOOK_INT2F  0
@@ -33,14 +34,13 @@
 /** The routine Windows gave us which we should use to report events. */
 static LPFN_MOUSEEVENT eventproc;
 /** Current status of the mouse driver (see MOUSEFLAGS_*). */
-static unsigned char mouseflags;
-enum {
-	MOUSEFLAGS_ENABLED      = 1 << 0,
-	MOUSEFLAGS_HAS_VBOX     = 1 << 1,
-	MOUSEFLAGS_VBOX_ENABLED = 1 << 2,
-	MOUSEFLAGS_HAS_WIN386   = 1 << 3,
-	MOUSEFLAGS_INT2F_HOOKED = 1 << 4
-};
+static struct mouseflags {
+	bool enabled : 1;
+	bool haswin386 : 1;
+	bool int2f_hooked : 1;
+} flags;
+/** Previous deltaX, deltaY from the int33 mouse callback (for relative motion) */
+static short prev_delta_x, prev_delta_y;
 #if HOOK_INT2F
 /** Existing interrupt2f handler. */
 static LPFN prev_int2f_handler;
@@ -54,35 +54,67 @@ static void send_event(unsigned short Status, short deltaX, short deltaY, short 
 
 #pragma code_seg ( "CALLBACKS" )
 
+#include "dlog.h"
+
 static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t x, int16_t y, int16_t delta_x, int16_t delta_y)
 #pragma aux (INT33_CB) int33_mouse_callback
 {
 	int status = 0;
 
-	if (events & INT33_EVENT_MASK_LEFT_BUTTON_PRESSED)   status |= SF_B1_DOWN;
+#if TRACE_EVENT_IN
+	dlog_print("w16mouse: events=");
+	dlog_printx(events);
+	dlog_print(" buttons=");
+	dlog_printx(buttons);
+	dlog_print(" x=");
+	dlog_printd(x);
+	dlog_print(" y=");
+	dlog_printd(y);
+	dlog_print(" dx=");
+	dlog_printd(delta_x);
+	dlog_print(" dy=");
+	dlog_printd(delta_y);
+	dlog_endline();
+#endif
+
+    if (events & INT33_EVENT_MASK_LEFT_BUTTON_PRESSED)   status |= SF_B1_DOWN;
 	if (events & INT33_EVENT_MASK_LEFT_BUTTON_RELEASED)  status |= SF_B1_UP;
 	if (events & INT33_EVENT_MASK_RIGHT_BUTTON_PRESSED)  status |= SF_B2_DOWN;
 	if (events & INT33_EVENT_MASK_RIGHT_BUTTON_RELEASED) status |= SF_B2_UP;
 
 	if (events & INT33_EVENT_MASK_MOVEMENT) {
-		status |= SF_MOVEMENT | SF_ABSOLUTE;
+		status |= SF_MOVEMENT;
 	}
 
-	(void) buttons;
-	(void) delta_x;
-	(void) delta_y;
+	if (events & INT33_EVENT_MASK_ABSOLUTE) {
+		status |= SF_ABSOLUTE;
 
-#if 0
+		// We set the window to be 0..0x7FFF, so just scale to 0xFFFF
+		x = (uint16_t)(x) * 2;
+		y = (uint16_t)(y) * 2;
+	} else {
+		// Use mickeys for relative motion
+		x = delta_x - prev_delta_x;
+		y = delta_y - prev_delta_y;
+
+		prev_delta_x = delta_x;
+		prev_delta_y = delta_y;
+	}
+
+	// Unused
+	(void) buttons;
+
+#if TRACE_EVENT
 	dlog_print("w16mouse: event status=");
 	dlog_printx(status);
 	dlog_print(" x=");
-	dlog_printx(x);
+	dlog_printd(x);
 	dlog_print(" y=");
-	dlog_printx(y);
+	dlog_printd(y);
 	dlog_endline();
 #endif
 
-	send_event(status, (uint16_t)(x) * 2, (uint16_t)(y) * 2, MOUSE_NUM_BUTTONS, 0, 0);
+	send_event(status, x, (uint16_t)(y), MOUSE_NUM_BUTTONS, 0, 0);
 }
 
 #if HOOK_INT2F
@@ -90,7 +122,7 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
 static void display_switch_handler(int function)
 #pragma aux display_switch_handler parm caller [ax] modify [ax bx cx dx si di]
 {
-	if (!(mouseflags & MOUSEFLAGS_ENABLED) || !(mouseflags & MOUSEFLAGS_VBOX_ENABLED)) {
+	if (!flags.enabled) {
 		return;
 	}
 
@@ -169,18 +201,20 @@ BOOL FAR PASCAL LibMain(HINSTANCE hInstance, WORD wDataSegment,
 #if HOOK_INT2F
 	// Check now whether we are running under protected mode windows
 	if (windows_386_enhanced_mode()) {
-		mouseflags |= MOUSEFLAGS_HAS_WIN386;
+		flags.haswin386 = true;
 	}
 #endif
 
+#if 0
 	// When running under protected mode Windows, let's tell VMD (the mouse virtualizer)
 	// what type of mouse we are going to be using
-	if (mouseflags & MOUSEFLAGS_HAS_WIN386) {
+	if (flags.haswin386) {
 		LPFN vmd_entry = win_get_vxd_api_entry(VMD_DEVICE_ID);
 		if (vmd_entry) {
 			vmd_set_mouse_type(&vmd_entry, VMD_TYPE_PS2, 0x33, 0);
 		}
 	}
+#endif
 
 	return 1;
 }
@@ -204,9 +238,7 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 	eventproc = lpEventProc;
 	sti();
 
-	if (!(mouseflags & MOUSEFLAGS_ENABLED)) {
-		dlog_puts("w16mouse: enable");
-
+	if (!flags.enabled) {
 		int33_reset();
 
 		int33_set_horizontal_window(0, 0x7FFF);
@@ -214,17 +246,14 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 
 		int33_set_event_handler(INT33_EVENT_MASK_ALL, int33_mouse_callback);
 
-		dlog_puts("w16mouse: int33 enabled");
-
-		mouseflags |= MOUSEFLAGS_ENABLED;
+		flags.enabled = true;
 
 #if HOOK_INT2F
-		if ((mouseflags & MOUSEFLAGS_HAS_WIN386) && (mouseflags & MOUSEFLAGS_VBOX_ENABLED)) {
+		if (flags.haswin386) {
 			cli();
 			hook_int2f(&prev_int2f_handler, int2f_handler);
 			sti();
-			dlog_puts("int2F hooked!\n");
-			mouseflags |= MOUSEFLAGS_INT2F_HOOKED;
+			flags.int2f_hooked = true;
 		}
 #endif
 	}
@@ -233,23 +262,19 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 /** Called by Windows to disable the mouse driver. */
 VOID FAR PASCAL Disable(VOID)
 {
-	if (mouseflags & MOUSEFLAGS_ENABLED) {
-		dlog_puts("w16mouse: disable");
-
+	if (flags.enabled) {
 #if HOOK_INT2F
-		if (mouseflags & MOUSEFLAGS_INT2F_HOOKED) {
+		if (flags.int2f_hooked) {
 			cli();
 			unhook_int2f(prev_int2f_handler);
 			sti();
-			dlog_puts("int2F unhooked!\n");
-			mouseflags &= ~MOUSEFLAGS_INT2F_HOOKED;
+			flags.int2f_hooked = false;
 		}
 #endif
 
 		int33_reset();
-		dlog_puts("w16mouse: int33 reset");
 
-		mouseflags &= ~MOUSEFLAGS_ENABLED;
+		flags.enabled = false;
 	}
 }
 

@@ -38,19 +38,208 @@ static const uint16_t default_cursor_graphic[] = {
     0x0600, 0x0300, 0x0300, 0x0000
 };
 
-/** This is going to end up at offset 0 of our segment,
- *  have something here in case we end up calling a NULL near pointer by mistake. */
-void tsr_null(void)
-{
-	breakpoint();
-}
-
 static void bound_position_to_window(void)
 {
 	if (data.pos.x < data.min.x) data.pos.x = data.min.x;
 	if (data.pos.x > data.max.x) data.pos.x = data.max.x;
 	if (data.pos.y < data.min.y) data.pos.y = data.min.y;
 	if (data.pos.y > data.max.y) data.pos.y = data.max.y;
+}
+
+static inline bool is_text_mode(uint8_t mode)
+{
+	switch (mode) {
+	case 0:
+	case 1:
+	case 2:
+	case 3: // CGA text modes with 25 rows and variable columns
+	case 7: // MDA Mono text mode
+		return true;
+	default:
+		return false;
+	}
+}
+
+static void hide_text_cursor(void)
+{
+	// Restore the character under the old position of the cursor
+	uint16_t __far *ch = get_video_char(data.screen_page,
+	                                    data.cursor_pos.x / 8, data.cursor_pos.y / 8);
+	*ch = data.cursor_prev_char;
+	data.cursor_visible = false;
+}
+
+static void show_text_cursor(void)
+{
+	uint16_t __far *ch = get_video_char(data.screen_page,
+	                                    data.pos.x / 8, data.pos.y / 8);
+	data.cursor_prev_char = *ch;
+	data.cursor_pos = data.pos;
+	*ch = (*ch & data.cursor_text_and_mask) ^ data.cursor_text_xor_mask;
+	data.cursor_visible = true;
+}
+
+static bool get_graphic_cursor_area(struct point __far *cursor_pos,
+                                    struct point __far *start,
+                                    struct point __far *size,
+                                    struct point __far *offset)
+{
+	struct point screen_size;
+	screen_size.x = ((data.screen_max.x + 1) / data.screen_scale.x);
+	screen_size.y = ((data.screen_max.y + 1) / data.screen_scale.y);
+
+	start->x = (cursor_pos->x / data.screen_scale.x) - data.cursor_hotspot.x;
+	start->y = (cursor_pos->y / data.screen_scale.y) - data.cursor_hotspot.y;
+	size->x = GRAPHIC_CURSOR_WIDTH;
+	size->y = GRAPHIC_CURSOR_HEIGHT;
+	offset->x = 0;
+	offset->y = 0;
+
+	// Start clipping around
+	if (start->x < 0) {
+		offset->x += -start->x;
+		start->x = 0;
+	}
+	if (start->y < 0) {
+		offset->y += -start->y;
+		start->y = 0;
+	}
+	if (start->x > screen_size.x) {
+		return false; // Don't render cursor
+	} else if (start->x + size->x > screen_size.x) {
+		size->x -= (start->x + size->x) - screen_size.x;
+	}
+	if (start->y > screen_size.y) {
+		return false;
+	} else if (start->y + size->y > screen_size.y) {
+		size->y -= (start->y + size->y) - screen_size.y;
+	}
+
+	return true;
+}
+
+static inline uint8_t * get_prev_graphic_cursor_scanline(unsigned y)
+{
+	return &data.cursor_prev_graphic[y * GRAPHIC_CURSOR_WIDTH];
+}
+
+static inline uint16_t get_graphic_cursor_and_mask(unsigned y)
+{
+	return data.cursor_graphic[y];
+}
+
+static inline uint16_t get_graphic_cursor_xor_mask(unsigned y)
+{
+	return data.cursor_graphic[GRAPHIC_CURSOR_HEIGHT + y];
+}
+
+static void hide_graphic_cursor(void)
+{
+	uint8_t __far *pixel;
+	uint8_t *cursor_prev;
+	struct point start, size, offset;
+	unsigned pixels_per_byte, y, x;
+
+	// Compute the area where the cursor is currently positioned
+	if (!get_graphic_cursor_area(&data.cursor_pos, &start, &size, &offset)) {
+		return;
+	}
+
+	switch (data.screen_mode) {
+	case 4:
+	case 5:
+	case 6: // CGA modes
+		pixels_per_byte = data.screen_mode == 0x6 ? 8 : 4;
+
+		for (y = 0; y < size.y; y++) {
+			cursor_prev = get_prev_graphic_cursor_scanline(offset.y + y);
+			pixel = get_video_scanline(data.screen_mode, data.screen_page, start.y + y)
+			        + start.x / pixels_per_byte;
+
+			// Restore this scaline from cursor_prev
+			nfmemcpy(pixel, cursor_prev,
+			         ((start.x % pixels_per_byte) + size.x + (pixels_per_byte - 1)) / pixels_per_byte);
+		}
+
+		break;
+	}
+
+	data.cursor_visible = false;
+}
+
+static void show_graphic_cursor(void)
+{
+	static const uint16_t msb_mask = 0x8000;
+	uint16_t cursor_and_mask, cursor_xor_mask;
+	uint8_t __far *pixel, pixel_mask;
+	uint8_t *cursor_prev;
+	struct point start, size, offset;
+	unsigned pixels_per_byte, x, y;
+
+	// Compute the area where the cursor is supposed to be drawn
+	if (!get_graphic_cursor_area(&data.pos, &start, &size, &offset)) {
+		return;
+	}
+
+	switch (data.screen_mode) {
+	case 4:
+	case 5:
+	case 6: // CGA modes
+		pixels_per_byte = data.screen_mode == 0x6 ? 8 : 4;
+
+		for (y = 0; y < size.y; y++) {
+			cursor_and_mask = get_graphic_cursor_and_mask(offset.y + y) << offset.x;
+			cursor_xor_mask = get_graphic_cursor_xor_mask(offset.y + y) << offset.y;
+			cursor_prev = get_prev_graphic_cursor_scanline(offset.y + y);
+			pixel = get_video_scanline(data.screen_mode, data.screen_page, start.y + y)
+			        + start.x / pixels_per_byte;
+
+			// First copy this scanline to cursor_prev before any changes
+			fnmemcpy(cursor_prev, pixel,
+			         ((start.x % pixels_per_byte) + size.x + (pixels_per_byte - 1)) / pixels_per_byte);
+
+			// pixel points the previous multiple of pixels_per_byte;
+			// now advance to the start of cursor while updating the pixel_mask
+			pixel_mask = pixels_per_byte == 8 ? 0x80 : 0xC0;
+			for (x = 0; x < (start.x % pixels_per_byte); x++) {
+				pixel_mask >>= 8 / pixels_per_byte;
+			}
+
+			// Now pixel points to the start of cursor
+			for (; x < (start.x % pixels_per_byte) + size.x; x++) {
+				uint8_t rest = *pixel & ~pixel_mask;
+
+				if (!(cursor_and_mask & msb_mask)) {
+					*pixel = rest;
+				}
+				if (cursor_xor_mask & msb_mask) {
+					*pixel = rest | (*pixel ^ 0xFF) & pixel_mask;
+				}
+
+				// Advance to the next pixel
+				if (x % pixels_per_byte == pixels_per_byte - 1) {
+					// Next iteration starts new byte, reload pixel_mask
+					pixel++;
+					pixel_mask = pixels_per_byte == 8 ? 0x80 : 0xC0;
+				} else {
+					pixel_mask >>= 8 / pixels_per_byte;
+				}
+
+				// Advance to the next bit in the cursor mask
+				cursor_and_mask <<= 1;
+				cursor_xor_mask <<= 1;
+			}
+		}
+		break;
+	default:
+		dlog_print("Graphic mode 0x");
+		dlog_printx(data.screen_mode);
+		dlog_puts(" not supported");
+		return;
+	}
+
+	data.cursor_pos = data.pos;
+	data.cursor_visible = true;
 }
 
 /** Refreshes cursor position and visibility. */
@@ -74,25 +263,45 @@ static void refresh_cursor(void)
 	}
 #endif
 
-	if (data.screen_text_mode) {
+	if (is_text_mode(data.screen_mode)) {
 		if (data.cursor_visible) {
-			// Restore the character under the old position of the cursor
-			uint16_t __far *ch = get_video_char(data.screen_page,
-			                                    data.cursor_pos.x / 8, data.cursor_pos.y / 8);
-			*ch = data.cursor_prev_char;
-			data.cursor_visible = false;
+			// Hide the cursor at the old position if any
+			hide_text_cursor();
 		}
-
 		if (should_show) {
-			uint16_t __far *ch = get_video_char(data.screen_page,
-			                                    data.pos.x / 8, data.pos.y / 8);
-			data.cursor_prev_char = *ch;
-			data.cursor_pos = data.pos;
-			*ch = (*ch & data.cursor_text_and_mask) ^ data.cursor_text_xor_mask;
-			data.cursor_visible = true;
+			// Show the cursor at the new position
+			show_text_cursor();
 		}
 	} else {
-		dlog_puts("Graphic mode cursor is not implemented");
+		if (data.cursor_visible) {
+			hide_graphic_cursor();
+		}
+		if (should_show) {
+			show_graphic_cursor();
+		}
+	}
+}
+
+/** Forcefully hides the mouse cursor if shown. */
+static void hide_cursor(void)
+{
+#if USE_VIRTUALBOX
+	if (data.vbwantcursor) {
+		vbox_set_pointer_visible(&data.vb, false);
+		if (data.vbhaveabs) {
+			data.cursor_visible = false;
+		}
+	}
+#endif
+
+	if (is_text_mode(data.screen_mode)) {
+		if (data.cursor_visible) {
+			hide_text_cursor();
+		}
+	} else {
+		if (data.cursor_visible) {
+			hide_graphic_cursor();
+		}
 	}
 }
 
@@ -101,11 +310,11 @@ static void load_cursor(void)
 #if USE_VIRTUALBOX
 	if (data.vbwantcursor) {
 		VMMDevReqMousePointer *req = (VMMDevReqMousePointer *) data.vb.buf;
-		const unsigned width = 16, height = 16;
-		unsigned and_mask_size = (width + 7) / 8 * height;
-		unsigned xor_mask_size = width * height * 4;
-		unsigned data_size = and_mask_size + xor_mask_size;
-		unsigned full_size = MAX(sizeof(VMMDevReqMousePointer), 24 + 20 + data_size);
+		const unsigned width = GRAPHIC_CURSOR_WIDTH, height = GRAPHIC_CURSOR_HEIGHT;
+		const unsigned and_mask_size = (width + 7) / 8 * height;
+		const unsigned xor_mask_size = width * height * 4;
+		const unsigned data_size = and_mask_size + xor_mask_size;
+		const unsigned full_size = MAX(sizeof(VMMDevReqMousePointer), 24 + 20 + data_size);
 		unsigned int offset = 0, y, x;
 
 		bzero(req, full_size);
@@ -121,17 +330,17 @@ static void load_cursor(void)
 		req->width = width;
 		req->height = height;
 
-		// Just byteswap the and mask
+		// Just byteswap the AND mask
 		for (y = 0; y < height; ++y) {
-			uint16_t line = data.cursor_graphic[y];
+			uint16_t line = get_graphic_cursor_and_mask(y);
 			req->pointerData[(y*2)]   = (line >> 8) & 0xFF;
 			req->pointerData[(y*2)+1] = line & 0xFF;
 		}
 		offset += and_mask_size;
 
-		// Store the XOR mask in "RGBA" format.
+		// But the XOR mask needs to be converted to huge 4-byte "RGBA" format.
 		for (y = 0; y < height; ++y) {
-			uint16_t line = data.cursor_graphic[height + y];
+			uint16_t line = get_graphic_cursor_xor_mask(y);
 
 			for (x = 0; x < width; ++x) {
 				unsigned int pos = offset + (y * width * 4) + (x*4) + 0;
@@ -154,8 +363,9 @@ static void load_cursor(void)
 			dlog_puts("Could not send cursor to VirtualBox");
 		}
 
-		// VirtualBox shows the cursor even if we don't want;
-		// rehide if necessary.
+		// After we send this message, it looks like VirtualBox shows the cursor
+		// even if we didn't actually want it to be visible at this point.
+		// Mark it as visible so that refresh_cursor() will rehide it if necessary.
 		data.cursor_visible = true;
 		refresh_cursor();
 	}
@@ -164,9 +374,8 @@ static void load_cursor(void)
 
 static void refresh_video_info(void)
 {
-	uint8_t screen_columns;
-	uint8_t video_page;
-	uint8_t mode = int10_get_video_mode(&screen_columns, &video_page);
+	uint8_t screen_columns = bda_get_num_columns();
+	uint8_t mode = bda_get_video_mode() & ~0x80;
 	bool mode_change = mode != data.screen_mode;
 
 	if (mode_change && data.cursor_visible) {
@@ -177,69 +386,79 @@ static void refresh_video_info(void)
 	dlog_print("Current video mode=");
 	dlog_printx(mode);
 	dlog_print(" with cols=");
-	dlog_printd(screen_columns, 10);
+	dlog_printd(screen_columns);
 	dlog_endline();
 
 	data.screen_mode = mode;
-	data.screen_page = video_page;
+	data.screen_page = bda_get_cur_video_page();
+	data.screen_scale.x = 1;
+	data.screen_scale.y = 1;
 
+	// Compute screen coordinates which are used to events from
+	// absolute mouse coordinates.
 	switch (mode) {
 	case 0:
 	case 1:
 	case 2:
-	case 3: /* VGA text modes with 25 rows and variable columns */
+	case 3: // CGA text modes with 25 rows and variable columns
+	case 7: // MDA Mono text mode
 		data.screen_max.x = (screen_columns * 8) - 1;
 		data.screen_max.y = (25 * 8) - 1;
-		data.screen_text_mode = true;
 		break;
 
 	case 4:
-	case 5:
-	case 6: /* Graphic CGA modes */
+	case 5: // CGA low-res modes
+	case 0xd: // EGA low-res mode
 		data.screen_max.x = 640 - 1;
 		data.screen_max.y = 200 - 1;
-		data.screen_text_mode = false;
+		data.screen_scale.x = 2; // Really 320x200
+		break;
+
+	case 6: // CGA hi-res mode
+	case 0xe: // EGA modes
+	case 0x13: // VGA 256color mode
+		data.screen_max.x = 640 - 1;
+		data.screen_max.y = 200 - 1;
+		break;
+
+	case 0xf:
+	case 0x10: // EGA 640x350 modes
+		data.screen_max.x = 640 - 1;
+		data.screen_max.y = 350 - 1;
 		break;
 
 	case 0x11:
-	case 0x12:
-	case 0x13: /* Graphical 640x480 modes. */
+	case 0x12: // VGA 640x480 modes
 		data.screen_max.x = 640 - 1;
 		data.screen_max.y = 480 - 1;
-		data.screen_text_mode = false;
 		break;
 
 	default:
-		data.screen_max.x = 0;
-		data.screen_max.y = 0;
-		data.screen_text_mode = false;
+		// Unknown mode; assume default coordinates
+		// Note that if program sets up larger window coordinates, we'll use that instead.
+		data.screen_max.x = 640 - 1;
+		data.screen_max.y = 200 - 1;
 		break;
 	}
-
-	dlog_print(" screen_x=");
-	dlog_printd(data.screen_max.x, 10);
-	dlog_print(" y=");
-	dlog_printd(data.screen_max.y, 10);
-	dlog_endline();
 }
 
 static void call_event_handler(void (__far *handler)(), uint16_t events,
                                uint16_t buttons, int16_t x, int16_t y,
                                int16_t delta_x, int16_t delta_y)
 {
-#if TOO_VERBOSE
+#if TRACE_EVENT
 	dlog_print("calling event handler events=");
 	dlog_printx(events);
 	dlog_print(" buttons=");
 	dlog_printx(buttons);
 	dlog_print(" x=");
-	dlog_printd(x, 10);
+	dlog_printd(x);
 	dlog_print(" y=");
-	dlog_printd(y, 10);
+	dlog_printd(y);
 	dlog_print(" dx=");
-	dlog_printd(delta_x, 10);
+	dlog_printd(delta_x);
 	dlog_print(" dy=");
-	dlog_printd(delta_y, 10);
+	dlog_printd(delta_y);
 	dlog_endline();
 #endif
 
@@ -255,40 +474,52 @@ static void call_event_handler(void (__far *handler)(), uint16_t events,
 	}
 }
 
-static void handle_mouse_event(uint8_t buttons, bool absolute, int x, int y, int z)
+static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, int z)
 {
 	uint16_t events = 0;
 	int i;
 
-#if TOO_VERBOSE
+#if TRACE_EVENT
 	dlog_print("handle mouse event");
 	if (absolute) dlog_print(" absolute");
 	dlog_print(" buttons=");
 	dlog_printx(buttons);
 	dlog_print(" x=");
-	dlog_printd(x, 10);
+	dlog_printd(x);
 	dlog_print(" y=");
-	dlog_printd(y, 10);
+	dlog_printd(y);
+	dlog_print(" z=");
+	dlog_printd(z);
 	dlog_endline();
 #endif
 
 	if (absolute) {
 		// Absolute movement: x,y are in screen pixels units
-		// Translate to mickeys for delta movement
-		// TODO: we are not storing the remainder here (e.g. delta_frac),
-		// but does anyone care about it ?
-		data.delta.x += ((x - data.pos.x) * 8) / data.mickeysPerLine.x;
-		data.delta.y += ((y - data.pos.y) * 8) / data.mickeysPerLine.y;
+		events |= INT33_EVENT_MASK_ABSOLUTE;
 
-		// Store the new absolute position
-		data.pos.x = x;
-		data.pos.y = y;
-		data.pos_frac.x = 0;
-		data.pos_frac.y = 0;
-	} else {
+		if (x != data.pos.x || y != data.pos.y) {
+			events |= INT33_EVENT_MASK_MOVEMENT;
+
+			// Simulate a fake relative movement in mickeys
+			// This is almost certainly broken.
+			// Programs that expect relative movement data
+			// will almost never set a mickeyPerPixel value.
+			// So all we can do is guess.
+			data.delta.x += (x - data.pos.x) * 8;
+			data.delta.y += (y - data.pos.y) * 8;
+
+			// Store the new absolute position
+			data.pos.x = x;
+			data.pos.y = y;
+			data.pos_frac.x = 0;
+			data.pos_frac.y = 0;
+		}
+	} else if (x || y) {
 		// Relative movement: x,y are in mickeys
 		uint16_t ticks = bda_get_tick_count_lo();
 		unsigned ax = ABS(x), ay = ABS(y);
+
+		events |= INT33_EVENT_MASK_MOVEMENT;
 
 		// Check if around one second has passed
 		if ((ticks - data.last_ticks) >= 18) {
@@ -306,18 +537,20 @@ static void handle_mouse_event(uint8_t buttons, bool absolute, int x, int y, int
 
 		data.delta.x += x;
 		data.delta.y += y;
+		data.delta_frac.x = 0;
+		data.delta_frac.y = 0;
 
-		data.pos.x += scalei_rem(x, 8, data.mickeysPerLine.x, &data.pos_frac.x);
-		data.pos.y += scalei_rem(y, 8, data.mickeysPerLine.y, &data.pos_frac.y);
+		// Convert mickeys into pixels
+		data.pos.x += scalei_rem(x, data.mickeysPerLine.x, 8, &data.pos_frac.x);
+		data.pos.y += scalei_rem(y, data.mickeysPerLine.y, 8, &data.pos_frac.y);
 	}
+
 	bound_position_to_window();
 
-	// TODO: Wheel
-	(void) z;
-
-	// Report movement if there was any
-	if (data.delta.x || data.delta.y) {
-		events |= INT33_EVENT_MASK_MOVEMENT;
+	if (data.haswheel && z) {
+		events |= INT33_EVENT_MASK_WHEEL_MOVEMENT;
+		// Higher byte of buttons contains wheel movement
+		buttons |= (z & 0xFF) << 8;
 	}
 
 	// Update button status
@@ -337,25 +570,16 @@ static void handle_mouse_event(uint8_t buttons, bool absolute, int x, int y, int
 			data.button[i].released.last.x = data.pos.x;
 			data.button[i].released.last.y = data.pos.y;
 		}
-		if (evt & data.event_mask) {
-			events |= evt;
-		}
+		events |= evt;
 	}
 	data.buttons = buttons;
 
 	refresh_cursor();
 
 	events &= data.event_mask;
-
 	if (data.event_handler && events) {
 		call_event_handler(data.event_handler, events,
 		                   buttons, data.pos.x, data.pos.y, data.delta.x, data.delta.y);
-
-		// If we succesfully reported movement, clear it to avoid reporting movement again
-		if (events & INT33_EVENT_MASK_MOVEMENT) {
-			//data.delta.x = 0;
-			//data.delta.y = 0;
-		}
 	}
 }
 
@@ -365,17 +589,18 @@ static void __far ps2_mouse_callback(uint8_t status, uint8_t x, uint8_t y, uint8
 
 	int sx =   status & PS2M_STATUS_X_NEG ? 0xFF00 | x : x;
 	int sy = -(status & PS2M_STATUS_Y_NEG ? 0xFF00 | y : y);
+	int sz = z;
 	bool abs = false;
 
-#if TOO_VERBOSE
+#if TRACE_EVENT
 	dlog_print("ps2 callback status=");
 	dlog_printx(status);
 	dlog_print(" sx=");
-	dlog_printd(sx, 10);
+	dlog_printd(sx);
 	dlog_print(" sy=");
-	dlog_printd(sy, 10);
-	dlog_print(" z=");
-	dlog_printd(z, 10);
+	dlog_printd(sy);
+	dlog_print(" sz=");
+	dlog_printd(z);
 	dlog_endline();
 #endif
 
@@ -394,8 +619,15 @@ static void __far ps2_mouse_callback(uint8_t status, uint8_t x, uint8_t y, uint8
 	}
 #endif
 
+	// VirtualBox/Bochs BIOS does not pass wheel data to the callback,
+	// so we will fetch it directly from the BIOS data segment.
+	if (data.haswheel && !sz) {
+		int8_t __far * mouse_packet = MK_FP(bda_get_ebda_segment(), 0x28);
+		sz = mouse_packet[3];
+	}
+
 	handle_mouse_event(status & (PS2M_STATUS_BUTTON_1 | PS2M_STATUS_BUTTON_2 | PS2M_STATUS_BUTTON_3),
-	                   abs, sx, sy, z);
+	                   abs, sx, sy, sz);
 }
 
 #if USE_VIRTUALBOX
@@ -425,8 +657,14 @@ static void reset_mouse_hardware()
 	load_cursor();
 #endif
 
-	ps2m_init(PS2_MOUSE_PLAIN_PACKET_SIZE);
-	ps2m_reset();
+	if (data.usewheel && ps2m_detect_wheel()) {
+		// Detect wheel also reinitializes the mouse to the proper packet size
+		data.haswheel = true;
+	} else {
+		// Otherwise do an extra reset to return back to initial state, just in case
+		data.haswheel = false;
+		ps2m_init(PS2M_PACKET_SIZE_PLAIN);
+	}
 
 	ps2m_set_resolution(3);     // 3 = 200 dpi, 8 counts per millimeter
 	ps2m_set_sample_rate(4);    // 4 = 80 reports per second
@@ -455,7 +693,7 @@ static void reset_mouse_settings()
 	data.cursor_text_xor_mask = 0x7700U;
 	data.cursor_hotspot.x = 0;
 	data.cursor_hotspot.y = 0;
-	nnmemcpy(data.cursor_graphic, default_cursor_graphic, 32+32);
+	nnmemcpy(data.cursor_graphic, default_cursor_graphic, sizeof(data.cursor_graphic));
 
 	refresh_cursor(); // This will hide the cursor and update data.cursor_visible
 }
@@ -465,10 +703,12 @@ static void reset_mouse_state()
 	int i;
 	data.pos.x = data.min.x;
 	data.pos.y = data.min.y;
+	data.pos_frac.x = 0;
+	data.pos_frac.y = 0;
 	data.delta.x = 0;
 	data.delta.y = 0;
-	data.delta.x = 0;
-	data.delta.y = 0;
+	data.delta_frac.x = 0;
+	data.delta_frac.y = 0;
 	data.buttons = 0;
 	for (i = 0; i < NUM_BUTTONS; i++) {
 		data.button[i].pressed.count = 0;
@@ -482,6 +722,7 @@ static void reset_mouse_state()
 	data.cursor_pos.x = 0;
 	data.cursor_pos.y = 0;
 	data.cursor_prev_char = 0;
+	bzero(data.cursor_prev_graphic, sizeof(data.cursor_prev_graphic));
 }
 
 static void return_clear_button_counter(union INTPACK __far *r, struct buttoncounter *c)
@@ -523,8 +764,12 @@ static void int33_handler(union INTPACK r)
 	case INT33_SET_MOUSE_POSITION:
 		data.pos.x = r.x.cx;
 		data.pos.y = r.x.dx;
+		data.pos_frac.x = 0;
+		data.pos_frac.y = 0;
 		data.delta.x = 0;
 		data.delta.y = 0;
+		data.delta_frac.x = 0;
+		data.delta_frac.y = 0;
 		bound_position_to_window();
 		break;
 	case INT33_GET_BUTTON_PRESSED_COUNTER:
@@ -537,9 +782,9 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_SET_HORIZONTAL_WINDOW:
 		dlog_print("Mouse set horizontal window [");
-		dlog_printd(r.x.cx, 10);
+		dlog_printd(r.x.cx);
 		dlog_putc(',');
-		dlog_printd(r.x.dx, 10);
+		dlog_printd(r.x.dx);
 		dlog_puts("]");
 		// Recheck in case someone changed the video mode
 		refresh_video_info();
@@ -549,9 +794,9 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_SET_VERTICAL_WINDOW:
 		dlog_print("Mouse set vertical window [");
-		dlog_printd(r.x.cx, 10);
+		dlog_printd(r.x.cx);
 		dlog_putc(',');
-		dlog_printd(r.x.dx, 10);
+		dlog_printd(r.x.dx);
 		dlog_puts("]");
 		refresh_video_info();
 		data.min.y = r.x.cx;
@@ -560,6 +805,7 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_SET_GRAPHICS_CURSOR:
 		dlog_puts("Mouse set graphics cursor");
+		hide_cursor();
 		data.cursor_hotspot.x = r.x.bx;
 		data.cursor_hotspot.y = r.x.cx;
 		fnmemcpy(data.cursor_graphic, MK_FP(r.x.es, r.x.dx), 64);
@@ -568,8 +814,9 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_SET_TEXT_CURSOR:
 		dlog_print("Mouse set text cursor ");
-		dlog_printd(r.x.bx, 10);
+		dlog_printd(r.x.bx);
 		dlog_endline();
+		hide_cursor();
 		data.cursor_text_type = r.x.bx;
 		data.cursor_text_and_mask = r.x.cx;
 		data.cursor_text_xor_mask = r.x.dx;
@@ -592,16 +839,16 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_SET_MOUSE_SPEED:
 		dlog_print("Mouse set speed x=");
-		dlog_printd(r.x.cx, 10);
+		dlog_printd(r.x.cx);
 		dlog_print(" y=");
-		dlog_printd(r.x.dx, 10);
+		dlog_printd(r.x.dx);
 		dlog_endline();
 		data.mickeysPerLine.x = r.x.cx;
 		data.mickeysPerLine.y = r.x.dx;
 		break;
 	case INT33_SET_SPEED_DOUBLE_THRESHOLD:
 		dlog_print("Mouse set speed double threshold=");
-		dlog_printd(r.x.dx, 10);
+		dlog_printd(r.x.dx);
 		dlog_endline();
 		data.doubleSpeedThreshold = r.x.dx;
 		break;
@@ -629,11 +876,11 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_SET_MOUSE_SENSITIVITY:
 		dlog_print("Mouse set speed x=");
-		dlog_printd(r.x.bx, 10);
+		dlog_printd(r.x.bx);
 		dlog_print(" y=");
-		dlog_printd(r.x.cx, 10);
+		dlog_printd(r.x.cx);
 		dlog_print(" threshold=");
-		dlog_printd(r.x.dx, 10);
+		dlog_printd(r.x.dx);
 		dlog_endline();
 		data.mickeysPerLine.x = r.x.bx;
 		data.mickeysPerLine.y = r.x.cx;
@@ -657,8 +904,8 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_GET_DRIVER_INFO:
 		dlog_puts("Mouse get driver info");
-		r.h.bh = DRIVER_VERSION_MAJOR;
-		r.h.bl = DRIVER_VERSION_MINOR;
+		r.h.bh = REPORTED_VERSION_MAJOR;
+		r.h.bl = REPORTED_VERSION_MINOR;
 		r.h.ch = INT33_MOUSE_TYPE_PS2;
 		r.h.cl = 0;
 		break;
@@ -709,6 +956,53 @@ void __declspec(naked) __far int33_isr(void)
 		iret
 	}
 }
+
+#if USE_INT2F
+static void int2f_handler(union INTPACK r)
+#pragma aux int2f_handler "*" parm caller [] modify [ax bx cx dx es]
+{
+}
+
+void __declspec(naked) __far int2f_isr(void)
+{
+	__asm {
+		; Space for the pointer to the next ISR in the chain
+		push dword ptr 0
+
+		; Save all registers (also acts as the INTPACK paramenter later)
+		pusha
+		push ds
+		push es
+		push fs
+		push gs
+
+		mov bp, sp
+		push cs
+		pop ds
+
+		; Load the address of the next ISR in the chain
+		; Stack looks like sp+0:  gs, fs, es, ds (4*2bytes)
+		;                  sp+8:  pusha (8 * 2bytes)
+		;				   sp+24: dword ptr (the space we reserved to store the next ISR)
+		mov ax, word ptr [data + 4] ; i.e. data.prev_int2f_handler -- Watcom doesn't support structs
+		mov [bp + 24], ax
+		mov ax, word ptr [data + 6] ; i.e. data.prev_int2f_handler[2]
+		mov [bp + 26], ax
+
+		; Now call our handler
+		call int2f_handler
+
+		pop gs
+		pop fs
+		pop es
+		pop ds
+		popa
+
+		; This will jump to the address of the next ISR we loaded before
+		retf
+	}
+}
+#endif
 
 static LPTSRDATA int33_get_tsr_data(void);
 #pragma aux int33_get_tsr_data = \

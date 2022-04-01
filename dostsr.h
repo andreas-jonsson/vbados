@@ -26,11 +26,16 @@
 #include "vbox.h"
 
 #define USE_VIRTUALBOX 1
+#define USE_INT2F 1
+#define TRACE_EVENT 1
 
 #define NUM_BUTTONS 3
 
-#define DRIVER_VERSION_MAJOR 8
-#define DRIVER_VERSION_MINOR 0x20
+#define GRAPHIC_CURSOR_WIDTH 16
+#define GRAPHIC_CURSOR_HEIGHT 16
+
+#define REPORTED_VERSION_MAJOR 8
+#define REPORTED_VERSION_MINOR 0x20
 
 struct point {
 	int16_t x, y;
@@ -40,32 +45,60 @@ typedef struct tsrdata {
 	// TSR installation data
 	/** Previous int33 ISR, storing it for uninstall. */
 	void (__interrupt __far *prev_int33_handler)();
+#if USE_INT2F
+	void (__interrupt __far *prev_int2f_handler)();
+#endif
+	/** Whether to enable & use wheel mouse. */
+	bool usewheel;
 
 	// Video settings
+	/** Current video mode. */
 	uint8_t screen_mode;
+	/** Active video page. */
 	uint8_t screen_page;
-	bool screen_text_mode;
+	/** Max (virtual) coordinates of full screen in the current mode.
+	 *  Used for rendering graphic cursor, mapping absolute coordinates,
+	 *  and initializing the default min/max window. */
 	struct point screen_max;
+	/** Some graphic modes have pixel doubling, so the virtual coordinates
+	 *  are double vs real framebuffer coordinates. */
+	struct point screen_scale;
+
+	// Detected mouse hardware
+	/** Whether the current mouse has a wheel (and support is enabled). */
+	bool haswheel;
 
 	// Current mouse settings
+	/** Mouse sensitivity/speed. */
 	struct point mickeysPerLine; // mickeys per 8 pixels
+	/** Mouse acceleration "double-speed threshold". */
 	uint16_t doubleSpeedThreshold; // mickeys
+	/** Current window min coordinates. */
 	struct point min;
+	/** Current window max coordinates. */
 	struct point max;
+	/** Current cursor visible counter. If >= 0, cursor should be shown. */
 	int16_t visible_count;
+	/** For text cursor, whether this is a software or hardware cursor. */
 	uint8_t cursor_text_type;
+	/** Masks for the text cursor. */
 	uint16_t cursor_text_and_mask, cursor_text_xor_mask;
+	/** Hotspot for the graphic cursor. */
 	struct point cursor_hotspot;
-	uint16_t cursor_graphic[16+16];
+	/** Masks for the graphic cursor. */
+	uint16_t cursor_graphic[GRAPHIC_CURSOR_HEIGHT*2];
 
 	// Current mouse status
 	/** Current cursor position (in pixels). */
 	struct point pos;
 	/** Current remainder of movement that does not yet translate to an entire pixel
-	 *  (8ths of pixel right now). */
+	 *  (8ths of pixel). */
 	struct point pos_frac;
 	/** Current delta movement (in mickeys) since the last report. */
 	struct point delta;
+	/** Current remainder of delta movement that does not yet translate to an entire mickey
+	 *  Usually only when mickeysPerLine is not a multiple of 8. */
+	struct point delta_frac;
 	/** Total mickeys moved in the last second. */
 	uint16_t total_motion;
 	/** Ticks when the above value was last reset. */
@@ -78,14 +111,23 @@ typedef struct tsrdata {
 			uint16_t count;
 		} pressed, released;
 	} button[NUM_BUTTONS];
+
+	// Cursor information
 	/** Whether the cursor is currently displayed or not. */
 	bool cursor_visible;
+	/** The current position at which the cursor is displayed. */
 	struct point cursor_pos;
+	/** For text mode cursor, the character data that was displayed below the cursor. */
 	uint16_t cursor_prev_char;
+	/** For graphical mode cursor, contents of the screen that were displayed below
+	 *  the cursor before the cursor was drawn. */
+	uint8_t cursor_prev_graphic[GRAPHIC_CURSOR_WIDTH * GRAPHIC_CURSOR_HEIGHT];
 
 	// Current handlers
+	/** Address of the event handler. */
 	void (__far *event_handler)();
-	uint8_t event_mask;
+	/** Events for which we should call the event handler. */
+	uint16_t event_mask;
 
 #if USE_VIRTUALBOX
 	/** VirtualBox is available. */
@@ -102,6 +144,8 @@ typedef TSRDATA * PTSRDATA;
 typedef TSRDATA __far * LPTSRDATA;
 
 extern void __declspec(naked) __far int33_isr(void);
+
+extern void __declspec(naked) __far int2f_isr(void);
 
 extern LPTSRDATA __far get_tsr_data(bool installed);
 

@@ -162,7 +162,15 @@ enum INT33_EVENT_MASK {
 	INT33_EVENT_MASK_CENTER_BUTTON_PRESSED  = 1 << 5,
 	INT33_EVENT_MASK_CENTER_BUTTON_RELEASED = 1 << 6,
 
-	INT33_EVENT_MASK_ALL = 0xFF
+	// Wheel API Extensions:
+	/** Wheel mouse movement. */
+	INT33_EVENT_MASK_WHEEL_MOVEMENT         = 1 << 7,
+
+	// Absolute API extensions:
+	/** The source of the event is an absolute pointing device. */
+	INT33_EVENT_MASK_ABSOLUTE               = 1 << 8,
+
+	INT33_EVENT_MASK_ALL                    = 0xFFFF
 };
 
 #pragma aux INT33_CB far loadds parm [ax] [bx] [cx] [dx] [si] [di]

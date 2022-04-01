@@ -33,6 +33,7 @@ static unsigned get_resident_size(void)
 	return FP_OFF(&resident_end);
 }
 
+#if USE_VIRTUALBOX
 static int set_integration(LPTSRDATA data, bool enable)
 {
 	if (enable) {
@@ -42,7 +43,7 @@ static int set_integration(LPTSRDATA data, bool enable)
 
 		if ((err = vbox_init(&data->vb)) == 0) {
 			printf("Found VirtualBox device at IO 0x%x\n", data->vb.iobase);
-			printf("Found physical address for VBox communication 0x%lx\n", data->vb.buf_physaddr);
+			printf("Physical address used for VBox communication: 0x%lx\n", data->vb.buf_physaddr);
 
 			if ((err = vbox_report_guest_info(&data->vb, VBOXOSTYPE_DOS)) == 0) {
 				printf("VirtualBox integration enabled\n");
@@ -70,26 +71,37 @@ static int set_integration(LPTSRDATA data, bool enable)
 
 static int set_host_cursor(LPTSRDATA data, bool enable)
 {
-#if USE_VIRTUALBOX
 	if (data->vbavail) {
 		printf("Setting host cursor to %s\n", enable ? "enabled" : "disabled");
 		data->vbwantcursor = enable;
 	} else {
 		printf("VirtualBox integration is not available\n");
 	}
-#endif
-	return EXIT_SUCCESS;
+
+	return 0;
 }
+#endif
 
 static int configure_driver(LPTSRDATA data)
 {
 	int err;
 
 	// First check for PS/2 mouse availability
-	if ((err = ps2m_init(PS2_MOUSE_PLAIN_PACKET_SIZE))) {
+	if ((err = ps2m_init(PS2M_PACKET_SIZE_PLAIN))) {
 		fprintf(stderr, "Cannot init PS/2 mouse BIOS, err=%d\n", err);
 		// Can't do anything without PS/2
 		return err;
+	}
+
+	// Let's utilize the wheel by default
+	data->usewheel = true;
+
+	if (data->usewheel) {
+		// Do a quick check for a mouse wheel here.
+		// The TSR will do its own check when it is reset anyway
+		if (data->haswheel = ps2m_detect_wheel()) {
+			printf("Wheel mouse found and enabled\n");
+		}
 	}
 
 #if USE_VIRTUALBOX
@@ -118,8 +130,14 @@ static int install_driver(LPTSRDATA data)
 	deallocate_environment(_psp);
 
 	data->prev_int33_handler = _dos_getvect(0x33);
-
 	_dos_setvect(0x33, int33_isr);
+
+#if USE_INT2F
+	data->prev_int2f_handler = _dos_getvect(0x2f);
+	_dos_setvect(0x2f, int2f_isr);
+#endif
+
+	printf("Driver installed\n");
 
 	_dos_keep(EXIT_SUCCESS, (256 + resident_size + 15) / 16);
 	return 0;
@@ -131,9 +149,21 @@ static bool check_if_driver_uninstallable(LPTSRDATA data)
 	void (__interrupt __far *our_int33_handler)() = MK_FP(FP_SEG(data), FP_OFF(int33_isr));
 
 	if (cur_int33_handler != our_int33_handler) {
-		fprintf(stderr, "INT33 has been hooked by some other driver, removing anyway\n");
+		fprintf(stderr, "INT33 has been hooked by some other driver, removing anyway (will likely crash soon)\n");
 		return true;
 	}
+
+#if USE_INT2F
+	{
+		void (__interrupt __far *cur_int2f_handler)() = _dos_getvect(0x33);
+		void (__interrupt __far *our_int2f_handler)() = MK_FP(FP_SEG(data), FP_OFF(int2f_isr));
+
+		if (cur_int2f_handler != our_int2f_handler) {
+			fprintf(stderr, "INT2F has been hooked by some other driver, removing anyway (will likely crash soon)\n");
+			return true;
+		}
+	}
+#endif
 
 	return true;
 }
@@ -156,6 +186,10 @@ static int uninstall_driver(LPTSRDATA data)
 {
 	_dos_setvect(0x33, data->prev_int33_handler);
 
+#if USE_INT2F
+	_dos_setvect(0x2f, data->prev_int2f_handler);
+#endif
+
 	// Find and deallocate the PSP (including the entire program),
 	// it is always 256 bytes (16 paragraphs) before the TSR segment
 	_dos_freemem(FP_SEG(data) - 16);
@@ -169,10 +203,20 @@ static unsigned int33_call(unsigned ax);
 #pragma aux int33_call parm [ax] value [ax] = \
 	"int 0x33";
 
+static unsigned int2f_call(unsigned ax);
+#pragma aux int2f_call parm [ax] value [ax] = \
+	"int 0x2f";
+
 static int driver_reset(void)
 {
 	printf("Reset mouse driver\n");
 	return int33_call(0x0) == 0xFFFF;
+}
+
+static int driver_test(void)
+{
+	int2f_call(0x1234);
+	return EXIT_FAILURE;
 }
 
 static int driver_not_found(void)
@@ -189,8 +233,10 @@ static void print_help(void)
 	    "Supported actions:\n"
 	    "\tinstall           install the driver (default)\n"
 	    "\tuninstall         uninstall the driver from memory\n"
+#if USE_VIRTUALBOX
 	    "\tinteg <ON|OFF>    enable/disable virtualbox integration\n"
 	    "\thostcur <ON|OFF>  enable/disable mouse cursor rendering in host\n"
+#endif
 	    "\treset             reset mouse driver settings\n"
 	);
 }
@@ -222,7 +268,7 @@ int main(int argc, const char *argv[])
 	LPTSRDATA data = get_tsr_data(true);
 	int err, argi = 1;
 
-	printf("VBMouse %d.%d\n", DRIVER_VERSION_MAJOR, DRIVER_VERSION_MINOR);
+	printf("\nVBMouse 0.x (MSMOUSE %x.%x)\n", REPORTED_VERSION_MAJOR, REPORTED_VERSION_MINOR);
 
 	if (argi >= argc || stricmp(argv[argi], "install") == 0) {
 		if (data) {
@@ -244,6 +290,7 @@ int main(int argc, const char *argv[])
 			return EXIT_FAILURE;
 		}
 		return uninstall_driver(data);
+#if USE_VIRTUALBOX
 	} else if (stricmp(argv[argi], "integ") == 0) {
 		bool enable = true;
 
@@ -266,8 +313,11 @@ int main(int argc, const char *argv[])
 		}
 
 		return set_host_cursor(data, enable);
+#endif
 	} else if (stricmp(argv[argi], "reset") == 0) {
 		return driver_reset();
+	} else if (stricmp(argv[argi], "test") == 0) {
+		return driver_test();
 	}
 
 	print_help();

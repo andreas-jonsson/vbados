@@ -27,7 +27,17 @@ static unsigned scaleu(unsigned x, unsigned srcmax, unsigned dstmax);
 	"div bx" /* ax = dx:ax / srcmax */\
 	__parm [ax] [bx] [cx] \
 	__value [ax] \
-	__modify [ax cx dx]
+	__modify [ax dx]
+
+/** Map x linearly from range [0, srcmax] to [0, dstmax].
+ *  Equivalent of (x * dstmax) / srcmax but with 32-bit signed precision. */
+static int scalei(int x, int srcmax, int dstmax);
+#pragma aux scalei = \
+	"imul cx" /* dx:ax = x * dstmax */ \
+	"idiv bx" /* ax = dx:ax / srcmax */ \
+	__parm [ax] [bx] [cx] \
+	__value [ax] \
+	__modify [ax dx]
 
 /** Map x linearly from range [0, srcmax] to [0, dstmax].
  *  Equivalent of (x * dstmax) / srcmax but with 32-bit signed precision.
@@ -36,13 +46,18 @@ static unsigned scaleu(unsigned x, unsigned srcmax, unsigned dstmax);
 static int scalei_rem(int x, int srcmax, int dstmax, short *rem);
 #pragma aux scalei_rem = \
 	"imul cx"       /* dx:ax = x * dstmax */ \
+	"mov cx, [si]"  /* cx = rem */ \
+	"test cx, cx" \
+	"setns cl"      /* cl = 1 if rem positive, 0 if negative */ \
+	"movzx cx, cl" \
+	"dec cx"        /* cx = 0 if rem positive, -1 if negative */ \
 	"add ax, [si]"  /* ax += *rem */ \
-	"adc dx, 0"     /* dx += 1 if carry */ \
+	"adc dx, cx"    /* dx += 1 if carry and rem positive, 0 if carry and rem negative (aka. signed addition) */ \
 	"idiv bx"       /* ax = dx:ax / srcmax, dx = new remainder */ \
 	"mov [si], dx"  /* store the new remainder */ \
 	__parm [ax] [bx] [cx] [si] \
 	__value [ax] \
-	__modify [ax cx dx]
+	__modify [ax cx dx si]
 
 static void bzero(void __far *buf, unsigned int size);
 #pragma aux bzero = \
