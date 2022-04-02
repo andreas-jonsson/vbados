@@ -161,6 +161,7 @@ extern void __declspec(naked) __far int2f_isr(void);
 
 extern LPTSRDATA __far get_tsr_data(bool installed);
 
+/** This symbol is always at the end of the TSR segment */
 extern int resident_end;
 
 /** This is not just data, but the entire segment. */

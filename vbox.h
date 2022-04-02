@@ -23,6 +23,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "dlog.h"
+#include "vds.h"
 #include "utils.h"
 #include "vboxdev.h"
 
@@ -32,17 +34,9 @@
 typedef struct vboxcomm {
 	uint16_t iobase;
 	char buf[VBOX_BUFFER_SIZE];
-	uint32_t buf_physaddr;
+	VDSDDS dds;
 } vboxcomm_t;
 typedef vboxcomm_t __far * LPVBOXCOMM;
-
-/** Logs a single character to the VBox debug message port. */
-static void vbox_log_putc(char c);
-#pragma aux vbox_log_putc = \
-	"mov dx, 0x504" \
-	"out dx, al" \
-	__parm [al] \
-	__modify [dx]
 
 /** Actually send a request to the VirtualBox VMM device.
   * @param addr 32-bit physical address containing the VMMDevRequest struct.
@@ -58,7 +52,16 @@ static void vbox_send_request(uint16_t iobase, uint32_t addr);
 	__parm [dx] [bx ax] \
 	__modify [dx]
 
-extern int vbox_init(LPVBOXCOMM vb);
+/** Finds the VirtualBox PCI device and reads the current IO base.
+  * @returns 0 if the device was found. */
+extern int vbox_init_device(LPVBOXCOMM vb);
+
+/** Prepares the buffer used for communicating with VBox and
+ *  computes its physical address (using VDS if necessary). */
+extern int vbox_init_buffer(LPVBOXCOMM vb);
+
+/** Releases/unlocks buffer, no further use possible. */
+extern int vbox_release_buffer(LPVBOXCOMM vb);
 
 /** Lets VirtualBox know that there are VirtualBox Guest Additions on this guest.
   * @param osType os installed on this guest. */
@@ -75,7 +78,7 @@ static int vbox_report_guest_info(LPVBOXCOMM vb, uint32_t osType)
 	req->guestInfo.interfaceVersion = VMMDEV_VERSION;
 	req->guestInfo.osType = osType;
 
-	vbox_send_request(vb->iobase, vb->buf_physaddr);
+	vbox_send_request(vb->iobase, vb->dds.physicalAddress);
 
 	return req->header.rc;
 }
@@ -94,7 +97,7 @@ static int vbox_set_mouse(LPVBOXCOMM vb, bool absolute, bool pointer)
 	if (absolute) req->mouseFeatures |= VMMDEV_MOUSE_GUEST_CAN_ABSOLUTE;
 	if (pointer)  req->mouseFeatures |= VMMDEV_MOUSE_GUEST_NEEDS_HOST_CURSOR;
 
-	vbox_send_request(vb->iobase, vb->buf_physaddr);
+	vbox_send_request(vb->iobase, vb->dds.physicalAddress);
 
 	return req->header.rc;
 }
@@ -114,7 +117,7 @@ static int vbox_get_mouse(LPVBOXCOMM vb, bool __far *abs,
 	req->header.requestType = VMMDevReq_GetMouseStatus;
 	req->header.rc = -1;
 
-	vbox_send_request(vb->iobase, vb->buf_physaddr);
+	vbox_send_request(vb->iobase, vb->dds.physicalAddress);
 
 	*abs = req->mouseFeatures & VMMDEV_MOUSE_HOST_WANTS_ABSOLUTE;
 	*xpos = req->pointerXPos;
@@ -123,7 +126,7 @@ static int vbox_get_mouse(LPVBOXCOMM vb, bool __far *abs,
 	return req->header.rc;
 }
 
-/** @todo */
+/** Asks the host to render the mouse cursor for us. */
 static int vbox_set_pointer_visible(LPVBOXCOMM vb, bool visible)
 {
 	VMMDevReqMousePointer __far *req = (void __far *) vb->buf;
@@ -137,7 +140,7 @@ static int vbox_set_pointer_visible(LPVBOXCOMM vb, bool visible)
 
 	if (visible) req->fFlags |= VBOX_MOUSE_POINTER_VISIBLE;
 
-	vbox_send_request(vb->iobase, vb->buf_physaddr);
+	vbox_send_request(vb->iobase, vb->dds.physicalAddress);
 
 	return req->header.rc;
 }

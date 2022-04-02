@@ -38,9 +38,7 @@ enum {
 	CFG_BAR1            = 0x14, /* DWord */
 };
 
-/** Finds the VirtualBox PCI device and reads the current IO base.
-  * @returns 0 if the device was found. */
-static int vbox_find_iobase(uint16_t __far *iobase)
+int vbox_init_device(LPVBOXCOMM vb)
 {
 	int err;
 	pcisel pcidev;
@@ -73,65 +71,61 @@ static int vbox_find_iobase(uint16_t __far *iobase)
 		return -2;
 	}
 
-	*iobase = bar & 0xFFFC;
+	vb->iobase = bar & 0xFFFC;
 
 	return 0;
 }
 
-static int vbox_get_phys_addr(uint32_t __far *physaddr, void __far *buf)
+int vbox_init_buffer(LPVBOXCOMM vb)
 {
-	int err = 0;
-#if 0
 	if (vds_available()) {
 		// Use the Virtual DMA Service to get the physical address of this buffer
-		bufdds.regionSize = bufferSize;
-		bufdds.segOrSelector = FP_SEG(pBuf);
-		bufdds.offset = FP_OFF(pBuf);
-		bufdds.bufferId = 0;
-		bufdds.physicalAddress = 0;
+		int err;
 
-		err = vds_lock_dma_buffer_region(&bufdds, VDS_NO_AUTO_ALLOC);
-		if (err == VDS_REGION_NOT_CONTIGUOUS) {
-			// This is why we made the allocation double the required size
-			// If the buffer happens to be on a page boundary,
-			// it may not be contiguous and cause the call to fail.
-			// So, we try to lock the 2nd half of the allocation,
-			// which should not be on a page boundary.
-			vbox_logs("VDS try again\n");
-			pBuf = (char FAR*) pBuf + bufferSize;
-			bufdds.regionSize = bufferSize;
-			bufdds.offset += bufferSize;
-			err = vds_lock_dma_buffer_region(&bufdds, VDS_NO_AUTO_ALLOC);
-		}
+		vb->dds.regionSize = sizeof(vb->buf);
+		vb->dds.segOrSelector = FP_SEG(&vb->buf);
+		vb->dds.offset = FP_OFF(&vb->buf);
+		vb->dds.bufferId = 0;
+		vb->dds.physicalAddress = 0;
+
+		err = vds_lock_dma_buffer_region(&vb->dds, VDS_NO_AUTO_ALLOC);
 		if (err) {
-			vbox_logs("VDS lock failure\n");
+			// As far as I have seen, most VDS providers always keep low memory contiguous,
+			// so I'm not handling VDS_REGION_NOT_CONTIGUOUS here.
+			dlog_print("Error while VDS locking, err=");
+			dlog_printd(err);
+			dlog_endline();
+			return err;
 		}
 	} else {
-		bufdds.regionSize = 0;  // Indicates we don't have to unlock this later on
+		vb->dds.regionSize = 0; // So that we don't try to unlock it later
+		vb->dds.segOrSelector = FP_SEG(&vb->buf);
+		vb->dds.offset = FP_OFF(&vb->buf);
+		vb->dds.bufferId = 0;
 
-		// If VDS is not available, assume we are not paging
-		// Just use the linear address as physical
-		bufdds.physicalAddress = FP_SEG(pBuf + FP_OFF(pBuf);
-		err = 0;
+		vb->dds.physicalAddress = vds_ptr_to_linear(&vb->buf);
 	}
-#endif
 
-	*physaddr = ((uint32_t)(FP_SEG(buf)) << 4) + FP_OFF(buf);
-
-	return err;
+	return 0;
 }
 
-int vbox_init(LPVBOXCOMM vb)
+int vbox_release_buffer(LPVBOXCOMM vb)
 {
-	int err;
+	if (vds_available() && vb->dds.regionSize) {
 
-	if ((err = vbox_find_iobase(&vb->iobase))) {
-		return err;
+		int err = vds_unlock_dma_buffer_region(&vb->dds, 0);
+		if (err) {
+			dlog_print("Error while VDS unlocking, err=");
+			dlog_printd(err);
+			dlog_endline();
+			// Ignore the error, it's not like we can do anything
+		}
 	}
-
-	if (err = vbox_get_phys_addr(&vb->buf_physaddr, vb->buf)) {
-		return err;
-	}
+	vb->dds.regionSize = 0;
+	vb->dds.segOrSelector = 0;
+	vb->dds.offset = 0;
+	vb->dds.bufferId = 0;
+	vb->dds.physicalAddress = 0;
 
 	return 0;
 }

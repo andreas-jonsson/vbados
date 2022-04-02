@@ -24,7 +24,7 @@
 #include <stdint.h>
 
 typedef unsigned char vdserr;
-enum {
+enum vds_errors {
 	VDS_SUCCESSFUL = 0,
 	VDS_REGION_NOT_CONTIGUOUS = 1,
 	VDS_REGION_NOT_ALIGNED    = 2,
@@ -44,7 +44,7 @@ enum {
 	VDS_FLAGS_NOT_SUPPORTED   = 0x10,
 };
 
-enum {
+enum vds_flags {
 /*
    Bit 1 = Automatically copy to/from buffer
    Bit 2 = Disable automatic buffer allocation
@@ -62,7 +62,7 @@ enum {
 };
 
 /** DMA Descriptor structure. Describes a potentially DMA-lockable buffer. */
-typedef _Packed struct VDS_DDS
+typedef _Packed struct VDSDDS
 {
 	/** Size of this buffer. */
 	uint32_t regionSize;
@@ -74,7 +74,15 @@ typedef _Packed struct VDS_DDS
 	uint16_t bufferId;
 	/** Physical address of this buffer. */
 	uint32_t physicalAddress;
-} VDS_DDS;
+} VDSDDS;
+
+/** Converts a far pointer into equivalent linear address.
+ *  Note that under protected mode linear != physical.
+ *  That's what VDS is for.  */
+static inline uint32_t vds_ptr_to_linear(const void __far * ptr)
+{
+	return ((uint32_t)(FP_SEG(ptr)) << 4) + FP_OFF(ptr);
+}
 
 static bool vds_available(void);
 #pragma aux vds_available = \
@@ -89,9 +97,9 @@ static bool vds_available(void);
 /** Locks an already allocated buffer into a physical memory location.
   * regionSize, offset and segment must be valid in the DDS,
   * while the physical address is returned. */
-static vdserr vds_lock_dma_buffer_region(VDS_DDS __far * dds, unsigned char flags);
+static vdserr vds_lock_dma_buffer_region(VDSDDS __far * dds, unsigned char flags);
 #pragma aux vds_lock_dma_buffer_region = \
-	"stc"              /* If nothing happens, assume failure. */ \
+	"stc" \
 	"mov ax, 0x8103" \
 	"int 0x4B" \
 	"jc fail" \
@@ -99,17 +107,54 @@ static vdserr vds_lock_dma_buffer_region(VDS_DDS __far * dds, unsigned char flag
 	"jmp end" \
 	"fail: test al, al" \
 	"jnz end" \
-	"mov al, 0xFF"       /* Force a error code if there was none. */ \
+	"mov al, 0xFF"      /* Force a error code if there was none. */ \
 	"end:" \
 	__parm [es di] [dx] \
 	__value [al] \
 	__modify [ax]
 
 /** Unlocks a locked buffer. */
-static vdserr vds_unlock_dma_buffer_region(VDS_DDS __far * dds, unsigned char flags);
+static vdserr vds_unlock_dma_buffer_region(VDSDDS __far * dds, unsigned char flags);
 #pragma aux vds_unlock_dma_buffer_region = \
 	"stc" \
 	"mov ax, 0x8104" \
+	"int 0x4B" \
+	"jc fail" \
+	"mov al, 0" \
+	"jmp end" \
+	"fail: test al, al" \
+	"jnz end" \
+	"mov al, 0xFF" \
+	"end:" \
+	__parm [es di] [dx] \
+	__value [al] \
+	__modify [ax]
+
+/** Allocates a DMA buffer.
+ *  @param dds regionSize must be valid.
+ *  @return dds Physical_Address, Buffer_ID, and Region_Size
+ */
+static vdserr vds_request_dma_buffer(VDSDDS __far * dds, unsigned char flags);
+#pragma aux vds_request_dma_buffer = \
+	"stc" \
+	"mov ax, 0x8107" \
+	"int 0x4B" \
+	"jc fail" \
+	"mov al, 0" \
+	"jmp end" \
+	"fail: test al, al" \
+	"jnz end" \
+	"mov al, 0xFF" \
+	"end:" \
+	__parm [es di] [dx] \
+	__value [al] \
+	__modify [ax]
+
+/** Frees a DMA buffer. */
+static vdserr vds_release_dma_buffer(VDSDDS __far * dds, unsigned char flags);
+#pragma aux vds_release_dma_buffer = \
+	"stc" \
+	"mov ax, 0x8108" \
 	"int 0x4B" \
 	"jc fail" \
 	"mov al, 0" \

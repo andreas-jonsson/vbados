@@ -25,7 +25,7 @@
 #if ENABLE_DLOG
 
 #if 1
-#include "vbox.h"
+#include "vboxlog.h"
 #define dlog_putc vbox_log_putc
 #endif
 

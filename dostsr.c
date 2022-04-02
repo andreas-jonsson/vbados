@@ -366,7 +366,7 @@ static void load_cursor(void)
 
 		dlog_puts("Loading cursor to VBox");
 
-		vbox_send_request(data.vb.iobase, data.vb.buf_physaddr);
+		vbox_send_request(data.vb.iobase, data.vb.dds.physicalAddress);
 
 		if (req->header.rc != 0) {
 			dlog_puts("Could not send cursor to VirtualBox");

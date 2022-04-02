@@ -36,24 +36,34 @@ static int set_integration(LPTSRDATA data, bool enable)
 
 		data->vbavail = false; // Reinitialize it even if already enabled
 
-		if ((err = vbox_init(&data->vb)) == 0) {
-			printf("Found VirtualBox device at IO 0x%x\n", data->vb.iobase);
-			printf("Physical address used for VBox communication: 0x%lx\n", data->vb.buf_physaddr);
-
-			if ((err = vbox_report_guest_info(&data->vb, VBOXOSTYPE_DOS)) == 0) {
-				printf("VirtualBox integration enabled\n");
-				data->vbavail = true;
-			} else {
-				fprintf(stderr, "VirtualBox communication is not working, err=%d\n", err);
-				return err;
-			}
-		} else {
+		err = vbox_init_device(&data->vb);
+		if (err) {
 			fprintf(stderr, "Cannot find VirtualBox PCI device, err=%d\n", err);
 			return err;
 		}
+
+		printf("Found VirtualBox device at IO 0x%x\n", data->vb.iobase);
+
+		err = vbox_init_buffer(&data->vb);
+		if (err) {
+			fprintf(stderr, "Cannot lock buffer used for VirtualBox communication, err=%d\n", err);
+			return err;
+		}
+
+		err = vbox_report_guest_info(&data->vb, VBOXOSTYPE_DOS);
+		if (err) {
+			fprintf(stderr, "VirtualBox communication is not working, err=%d\n", err);
+			return err;
+		}
+
+		printf("VirtualBox integration enabled\n");
+		data->vbavail = true;
 	} else {
 		if (data->vbavail) {
 			vbox_set_mouse(&data->vb, false, false);
+
+			vbox_release_buffer(&data->vb);
+
 			printf("Disabled VirtualBox integration\n");
 			data->vbavail = false;
 		} else {
@@ -208,12 +218,6 @@ static int driver_reset(void)
 	return int33_call(0x0) == 0xFFFF;
 }
 
-static int driver_test(void)
-{
-	int2f_call(0x1234);
-	return EXIT_FAILURE;
-}
-
 static int driver_not_found(void)
 {
 	fprintf(stderr, "Driver data not found (driver not installed?)\n");
@@ -311,8 +315,6 @@ int main(int argc, const char *argv[])
 #endif
 	} else if (stricmp(argv[argi], "reset") == 0) {
 		return driver_reset();
-	} else if (stricmp(argv[argi], "test") == 0) {
-		return driver_test();
 	}
 
 	print_help();
