@@ -28,6 +28,24 @@
 #include "vbox.h"
 #include "dostsr.h"
 
+static int set_wheel(LPTSRDATA data, bool enable)
+{
+	printf("Setting wheel support to %s\n", enable ? "enabled" : "disabled");
+	data->usewheel = enable;
+
+	if (data->usewheel) {
+		// Do a quick check for a mouse wheel here.
+		// The TSR will do its own check when it is reset anyway
+		if (data->haswheel = ps2m_detect_wheel()) {
+			printf("Wheel mouse found and enabled\n");
+		}
+	} else {
+		data->haswheel = false;
+	}
+
+	return 0;
+}
+
 #if USE_VIRTUALBOX
 static int set_integration(LPTSRDATA data, bool enable)
 {
@@ -99,15 +117,7 @@ static int configure_driver(LPTSRDATA data)
 	}
 
 	// Let's utilize the wheel by default
-	data->usewheel = true;
-
-	if (data->usewheel) {
-		// Do a quick check for a mouse wheel here.
-		// The TSR will do its own check when it is reset anyway
-		if (data->haswheel = ps2m_detect_wheel()) {
-			printf("Wheel mouse found and enabled\n");
-		}
-	}
+	set_wheel(data, true);
 
 #if USE_VIRTUALBOX
 	// Assume initially that we want integration and host cursor
@@ -232,6 +242,7 @@ static void print_help(void)
 	    "Supported actions:\n"
 	    "\tinstall           install the driver (default)\n"
 	    "\tuninstall         uninstall the driver from memory\n"
+	    "\twheel <ON|OFF>    enable/disable wheel API support\n"
 #if USE_VIRTUALBOX
 	    "\tinteg <ON|OFF>    enable/disable virtualbox integration\n"
 	    "\thostcur <ON|OFF>  enable/disable mouse cursor rendering in host\n"
@@ -289,6 +300,17 @@ int main(int argc, const char *argv[])
 			return EXIT_FAILURE;
 		}
 		return uninstall_driver(data);
+	} else if (stricmp(argv[argi], "wheel") == 0) {
+		bool enable = true;
+
+		if (!data) return driver_not_found();
+
+		argi++;
+		if (argi < argc) {
+			if (is_false(argv[argi])) enable = false;
+		}
+
+		return set_wheel(data, enable);
 #if USE_VIRTUALBOX
 	} else if (stricmp(argv[argi], "integ") == 0) {
 		bool enable = true;
@@ -310,6 +332,9 @@ int main(int argc, const char *argv[])
 		if (argi < argc) {
 			if (is_false(argv[argi])) enable = false;
 		}
+
+		// Reset before changing this to ensure the cursor is not drawn
+		int33_reset();
 
 		return set_host_cursor(data, enable);
 #endif

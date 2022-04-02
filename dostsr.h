@@ -114,6 +114,10 @@ typedef struct tsrdata {
 			uint16_t count;
 		} pressed, released;
 	} button[NUM_BUTTONS];
+	/** Total delta movement of the wheel since the last wheel report. */
+	int16_t wheel_delta;
+	/** Last position where the wheel was moved. */
+	struct point wheel_last;
 
 	// Cursor information
 	/** Whether the cursor is currently displayed or not. */

@@ -129,15 +129,21 @@ enum INT33_API {
 	/** Gets the current window coordinates (set by INT33_SET_HORIZONTAL_WINDOW).
 	 *  @return ax min_x, bx min_y, cx max_x, d max_y. */
 	INT33_GET_WINDOW = 0x31,
-};
 
-enum INT33_API_INTERNAL {
+	// Wheel API Extensions:
+	INT33_GET_CAPABILITIES = 0x11,
+
+	// Our internal API functions:
+	/** Obtains a pointer to the driver's data. */
 	INT33_GET_TSR_DATA = 0x7f
 };
 
-enum {
-	INT33_MOUSE_FOUND = 0xFFFF
+enum INT33_CAPABILITY_BITS {
+	INT33_CAPABILITY_MOUSE_API = 1 << 0
 };
+
+#define INT33_WHEEL_API_MAGIC 'WM'
+#define INT33_MOUSE_FOUND 0xFFFF
 
 enum INT33_MOUSE_TYPE {
 	INT33_MOUSE_TYPE_BUS = 1,
@@ -181,14 +187,14 @@ static uint16_t int33_reset(void);
 	"int 0x33" \
 	__value [ax]
 
-static void int33_set_horizontal_window(uint16_t min, uint16_t max);
+static void int33_set_horizontal_window(int16_t min, int16_t max);
 #pragma aux int33_set_horizontal_window = \
 	"mov ax, 0x7" \
 	"int 0x33" \
 	__parm [cx] [dx] \
 	__modify [ax]
 
-static void int33_set_vertical_window(uint16_t min, uint16_t max);
+static void int33_set_vertical_window(int16_t min, int16_t max);
 #pragma aux int33_set_vertical_window = \
 	"mov ax, 0x8" \
 	"int 0x33" \
@@ -201,5 +207,18 @@ static void int33_set_event_handler(uint16_t event_mask, void (__far *handler)()
 	"int 0x33" \
 	__parm [cx] [es dx] \
 	__modify [ax]
+
+static uint16_t int33_get_driver_version(void);
+#pragma aux int33_get_driver_version = \
+	"mov bx, 0" \
+	"mov ax, 0x24" \
+	"int 0x33" \
+	"cmp ax, -1" \
+	"jne end" \
+	"error:" \
+	"mov bx, 0" \
+	"end:" \
+	__value [bx] \
+	__modify [ax bx cx dx]
 
 #endif

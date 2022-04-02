@@ -384,7 +384,6 @@ static void load_cursor(void)
 /** Refreshes the information about the current video mode. */
 static void refresh_video_info(void)
 {
-	uint8_t screen_columns = bda_get_num_columns();
 	uint8_t mode = bda_get_video_mode() & ~0x80;
 	bool mode_change = mode != data.screen_mode;
 
@@ -396,7 +395,9 @@ static void refresh_video_info(void)
 	dlog_print("Current video mode=");
 	dlog_printx(mode);
 	dlog_print(" with cols=");
-	dlog_printd(screen_columns);
+	dlog_printd(bda_get_num_columns());
+	dlog_print(" lastrow=");
+	dlog_printd(bda_get_last_row());
 	dlog_endline();
 
 	data.screen_mode = mode;
@@ -412,8 +413,8 @@ static void refresh_video_info(void)
 	case 2:
 	case 3: // CGA text modes with 25 rows and variable columns
 	case 7: // MDA Mono text mode
-		data.screen_max.x = (screen_columns * 8) - 1;
-		data.screen_max.y = (25 * 8) - 1;
+		data.screen_max.x = (bda_get_num_columns() * 8) - 1;
+		data.screen_max.y = (                   25 * 8) - 1;
 		break;
 
 	case 4:
@@ -736,11 +737,22 @@ static void reset_mouse_state()
 		data.button[i].released.last.x = 0;
 		data.button[i].released.last.y = 0;
 	}
+	data.wheel_delta = 0;
 	data.cursor_visible = false;
 	data.cursor_pos.x = 0;
 	data.cursor_pos.y = 0;
 	data.cursor_prev_char = 0;
 	bzero(data.cursor_prev_graphic, sizeof(data.cursor_prev_graphic));
+}
+
+static void return_clear_wheel_counter(union INTPACK __far *r)
+{
+	r->x.cx = data.wheel_last.x;
+	r->x.dx = data.wheel_last.y;
+	r->x.bx = data.wheel_delta;
+	data.wheel_last.x = 0;
+	data.wheel_last.y = 0;
+	data.wheel_delta = 0;
 }
 
 static void return_clear_button_counter(union INTPACK __far *r, struct buttoncounter *c)
@@ -778,6 +790,10 @@ static void int33_handler(union INTPACK r)
 		r.x.cx = data.pos.x;
 		r.x.dx = data.pos.y;
 		r.x.bx = data.buttons;
+		if (data.haswheel) {
+			r.h.bh = data.wheel_delta;
+			data.wheel_delta = 0;
+		}
 		break;
 	case INT33_SET_MOUSE_POSITION:
 		data.pos.x = r.x.cx;
@@ -792,11 +808,30 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_GET_BUTTON_PRESSED_COUNTER:
 		r.x.ax = data.buttons;
-		return_clear_button_counter(&r, &data.button[MIN(r.x.bx, NUM_BUTTONS - 1)].pressed);
+		if (data.haswheel) {
+			r.h.bh = data.wheel_delta;
+		}
+		if (data.haswheel && r.x.bx == -1) {
+			// Wheel information
+			return_clear_wheel_counter(&r);
+		} else {
+			// Regular button information
+			int btn = MIN(r.x.bx, NUM_BUTTONS - 1);
+			return_clear_button_counter(&r, &data.button[btn].pressed);
+		}
 		break;
 	case INT33_GET_BUTTON_RELEASED_COUNTER:
 		r.x.ax = data.buttons;
-		return_clear_button_counter(&r, &data.button[MIN(r.x.bx, NUM_BUTTONS - 1)].released);
+		if (data.haswheel) {
+			r.h.bh = data.wheel_delta;
+		}
+		if (data.haswheel && r.x.bx == -1) {
+			// Wheel information
+			return_clear_wheel_counter(&r);
+		} else {
+			int btn = MIN(r.x.bx, NUM_BUTTONS - 1);
+			return_clear_button_counter(&r, &data.button[btn].released);
+		}
 		break;
 	case INT33_SET_HORIZONTAL_WINDOW:
 		dlog_print("Mouse set horizontal window [");
@@ -936,6 +971,11 @@ static void int33_handler(union INTPACK r)
 		r.x.bx = data.min.y;
 		r.x.cx = data.max.x;
 		r.x.dx = data.max.y;
+		break;
+	case INT33_GET_CAPABILITIES:
+		r.x.ax = INT33_WHEEL_API_MAGIC; // Driver supports wheel API
+		r.x.bx = 0;
+		r.x.cx = data.haswheel ? INT33_CAPABILITY_MOUSE_API : 0;
 		break;
 	case INT33_GET_TSR_DATA:
 		dlog_puts("Get TSR data");

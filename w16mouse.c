@@ -116,13 +116,18 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
  * The initialization routine should check whether a mouse exists.
  * @return nonzero value indicates a mouse exists.
  */
-#pragma off (unreferenced);
+#pragma off (unreferenced)
 BOOL FAR PASCAL LibMain(HINSTANCE hInstance, WORD wDataSegment,
                         WORD wHeapSize, LPSTR lpszCmdLine)
-#pragma pop (unreferenced);
+#pragma pop (unreferenced)
 {
-	// We are not going to bother checking whether the int33 driver exists
-	// and just assume it does.
+	uint16_t version = int33_get_driver_version();
+
+	// For now we just check for the presence of any int33 driver version
+	if (version <= 0) {
+		// This will cause a "can't load .drv" message from Windows
+		return 0;
+	}
 
 	return 1;
 }
@@ -149,6 +154,10 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 	if (!enabled) {
 		int33_reset();
 
+		// Since the mouse driver will likely not know the Windows resolution,
+		// let's manually set up a large window of coordinates so as to have
+		// as much precision as possible.
+		// We use 0x7FFF instead of 0xFFFF because this parameter is officially a signed value.
 		int33_set_horizontal_window(0, 0x7FFF);
 		int33_set_vertical_window(0, 0x7FFF);
 
@@ -162,8 +171,7 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 VOID FAR PASCAL Disable(VOID)
 {
 	if (enabled) {
-		int33_reset();
-
+		int33_reset(); // This removes our handler and removes all other settings
 		enabled = false;
 	}
 }
