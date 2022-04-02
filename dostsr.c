@@ -22,6 +22,7 @@
 #include "dlog.h"
 #include "ps2.h"
 #include "int10vga.h"
+#include "int2fwin.h"
 #include "int33.h"
 #include "dostsr.h"
 
@@ -247,6 +248,12 @@ static void refresh_cursor(void)
 {
 	bool should_show = data.visible_count >= 0;
 
+#if USE_INT2F
+	// Windows 386 is already rendering the cursor for us.
+	// Hide our own.
+	if (data.w386cursor) should_show = false;
+#endif
+
 #if USE_VIRTUALBOX
 	if (data.vbwantcursor) {
 		int err = 0;
@@ -305,6 +312,8 @@ static void hide_cursor(void)
 	}
 }
 
+/** Loads the current graphic cursor,
+ *  which in this case means uploading it to the host. */
 static void load_cursor(void)
 {
 #if USE_VIRTUALBOX
@@ -372,6 +381,7 @@ static void load_cursor(void)
 #endif
 }
 
+/** Refreshes the information about the current video mode. */
 static void refresh_video_info(void)
 {
 	uint8_t screen_columns = bda_get_num_columns();
@@ -442,11 +452,12 @@ static void refresh_video_info(void)
 	}
 }
 
+/** Calls the application-registered event handler. */
 static void call_event_handler(void (__far *handler)(), uint16_t events,
                                uint16_t buttons, int16_t x, int16_t y,
                                int16_t delta_x, int16_t delta_y)
 {
-#if TRACE_EVENT
+#if TRACE_EVENTS
 	dlog_print("calling event handler events=");
 	dlog_printx(events);
 	dlog_print(" buttons=");
@@ -474,12 +485,19 @@ static void call_event_handler(void (__far *handler)(), uint16_t events,
 	}
 }
 
+/** Process a mouse event internally.
+ *  @param buttons currently pressed buttons as a bitfield
+ *  @param absolute whether mouse coordinates are an absolute value
+ *  @param x y if absolute, then absolute coordinates in screen pixels
+ *             if relative, then relative coordinates in mickeys
+ *  @param z relative wheel mouse movement
+ */
 static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, int z)
 {
 	uint16_t events = 0;
 	int i;
 
-#if TRACE_EVENT
+#if TRACE_EVENTS
 	dlog_print("handle mouse event");
 	if (absolute) dlog_print(" absolute");
 	dlog_print(" buttons=");
@@ -592,7 +610,7 @@ static void __far ps2_mouse_callback(uint8_t status, uint8_t x, uint8_t y, uint8
 	int sz = z;
 	bool abs = false;
 
-#if TRACE_EVENT
+#if TRACE_EVENTS
 	dlog_print("ps2 callback status=");
 	dlog_printx(status);
 	dlog_print(" sx=");
@@ -958,18 +976,29 @@ void __declspec(naked) __far int33_isr(void)
 }
 
 #if USE_INT2F
-static void int2f_handler(union INTPACK r)
-#pragma aux int2f_handler "*" parm caller [] modify [ax bx cx dx es]
+static void windows_mouse_handler(int action, int x, int y, int buttons, int events)
+#pragma aux windows_mouse_handler "*" parm [ax] [bx] [cx] [dx] [si] modify [ax bx cx dx es]
 {
+	switch (action) {
+	case VMD_ACTION_MOUSE_EVENT:
+		handle_mouse_event(buttons, true, x, y, 0);
+		break;
+	case VMD_ACTION_HIDE_CURSOR:
+		dlog_puts("VMD_ACTION_HIDE_CURSOR");
+		data.w386cursor = true;
+		refresh_cursor();
+		break;
+	case VMD_ACTION_SHOW_CURSOR:
+		dlog_puts("VMD_ACTION_SHOW_CURSOR");
+		data.w386cursor = false;
+		refresh_cursor();
+		break;
+	}
 }
 
-void __declspec(naked) __far int2f_isr(void)
+void __declspec(naked) __far windows_mouse_callback()
 {
 	__asm {
-		; Space for the pointer to the next ISR in the chain
-		push dword ptr 0
-
-		; Save all registers (also acts as the INTPACK paramenter later)
 		pusha
 		push ds
 		push es
@@ -980,16 +1009,71 @@ void __declspec(naked) __far int2f_isr(void)
 		push cs
 		pop ds
 
-		; Load the address of the next ISR in the chain
-		; Stack looks like sp+0:  gs, fs, es, ds (4*2bytes)
-		;                  sp+8:  pusha (8 * 2bytes)
-		;				   sp+24: dword ptr (the space we reserved to store the next ISR)
-		mov ax, word ptr [data + 4] ; i.e. data.prev_int2f_handler -- Watcom doesn't support structs
-		mov [bp + 24], ax
-		mov ax, word ptr [data + 6] ; i.e. data.prev_int2f_handler[2]
-		mov [bp + 26], ax
+		call windows_mouse_handler
 
-		; Now call our handler
+		pop gs
+		pop fs
+		pop es
+		pop ds
+		popa
+
+		retf
+	}
+}
+
+static void int2f_handler(union INTPACK r)
+#pragma aux int2f_handler "*" parm caller [] modify [ax bx cx dx es]
+{
+	switch (r.x.ax) {
+	case INT2F_NOTIFY_WIN386_STARTUP:
+		dlog_print("Windows is starting, version=");
+		dlog_printx(r.x.di);
+		dlog_endline();
+		data.w386_startup.version = 3;
+		data.w386_startup.next = MK_FP(r.x.es, r.x.bx);
+		data.w386_startup.device_driver = 0;
+		data.w386_startup.device_driver_data = 0;
+		data.w386_startup.instance_data = &data.w386_instance;
+		data.w386_instance[0].ptr = &data;
+		data.w386_instance[0].size = sizeof(data);
+		data.w386_instance[1].ptr = 0;
+		data.w386_instance[1].size = 0;
+		r.x.es = FP_SEG(&data.w386_startup);
+		r.x.bx = FP_OFF(&data.w386_startup);
+		break;
+	case INT2F_NOTIFY_DEVICE_CALLOUT:
+		switch (r.x.bx) {
+		case VMD_DEVICE_ID:
+			switch (r.x.cx) {
+			case VMD_CALLOUT_TEST:
+				r.x.cx = 1; // Yes, we are here!
+				break;
+			case VMD_CALLOUT_GET_DOS_MOUSE_API:
+				// Windows is asking our mouse driver for the hook function address
+				r.x.ds = FP_SEG(windows_mouse_callback);
+				r.x.si = FP_OFF(windows_mouse_callback);
+				r.x.ax = 0; // Yes, we are here!
+				break;
+			}
+			break;
+		}
+		break;
+	}
+}
+
+void __declspec(naked) __far int2f_isr(void)
+{
+	__asm {
+		pusha
+		push ds
+		push es
+		push fs
+		push gs
+
+		mov bp, sp
+		push cs
+		pop ds
+
 		call int2f_handler
 
 		pop gs
@@ -998,8 +1082,8 @@ void __declspec(naked) __far int2f_isr(void)
 		pop ds
 		popa
 
-		; This will jump to the address of the next ISR we loaded before
-		retf
+		; Jump to the next handler in the chain
+		jmp dword ptr cs:[data + 4] ; wasm doesn't support structs, this is data.prev_int2f_handler
 	}
 }
 #endif

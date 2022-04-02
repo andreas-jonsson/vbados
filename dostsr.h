@@ -24,16 +24,19 @@
 #include <stdint.h>
 
 #include "vbox.h"
+#include "int2fwin.h"
 
 #define USE_VIRTUALBOX 1
 #define USE_INT2F 1
-#define TRACE_EVENT 1
+#define TRACE_EVENTS 0
 
 #define NUM_BUTTONS 3
 
 #define GRAPHIC_CURSOR_WIDTH 16
 #define GRAPHIC_CURSOR_HEIGHT 16
 
+#define VERSION_MAJOR 0
+#define VERSION_MINOR 3
 #define REPORTED_VERSION_MAJOR 8
 #define REPORTED_VERSION_MINOR 0x20
 
@@ -129,6 +132,15 @@ typedef struct tsrdata {
 	/** Events for which we should call the event handler. */
 	uint16_t event_mask;
 
+#if USE_INT2F
+	/** Information that we pass to Windows 386 on startup. */
+	win386_startup_info w386_startup;
+	win386_instance_item w386_instance[2];
+	/** Whether Windows 386 is rendering the cursor for us,
+	 *  and therefore we should hide our own. */
+	bool w386cursor : 1;
+#endif
+
 #if USE_VIRTUALBOX
 	/** VirtualBox is available. */
 	bool vbavail : 1;
@@ -150,5 +162,11 @@ extern void __declspec(naked) __far int2f_isr(void);
 extern LPTSRDATA __far get_tsr_data(bool installed);
 
 extern int resident_end;
+
+/** This is not just data, but the entire segment. */
+static inline unsigned get_resident_size(void)
+{
+	return FP_OFF(&resident_end);
+}
 
 #endif

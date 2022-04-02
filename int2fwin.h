@@ -24,26 +24,29 @@
 #include <stdint.h>
 #include <dos.h>
 
-struct win386_instance_item
+typedef _Packed struct win386_instance_item
 {
 	void __far * ptr;
 	uint16_t     size;
-};
+} win386_instance_item;
 
-struct win386_startup_info
+typedef _Packed struct win386_startup_info
 {
 	uint16_t version;
 	struct win386_startup_info __far * next;
 	char __far * device_driver;
 	void __far * device_driver_data;
-	struct win386_instance_item __far *instance_data;
-};
+	struct win386_instance_item __far * instance_data;
+} win386_startup_info;
 
 typedef void (__far *LPFN)(void);
 
 enum int2f_functions
 {
-	INT2F_NOTIFY_WIN386_STARTUP = 0x1605,
+	/** Notification sent when Windows386 is starting up. */
+	INT2F_NOTIFY_WIN386_STARTUP    = 0x1605,
+	/** Notification sent by a VxD that wants to invoke a function in a real-mode driver. */
+	INT2F_NOTIFY_DEVICE_CALLOUT    = 0x1607,
 
 	INT2F_NOTIFY_BACKGROUND_SWITCH = 0x4001,
 	INT2F_NOTIFY_FOREGROUND_SWITCH = 0x4002
@@ -76,6 +79,26 @@ static LPFN win_get_vxd_api_entry(uint16_t devid);
 enum vmd_apis {
 	VMD_GET_VERSION    = 0x0,
 	VMD_SET_MOUSE_TYPE = 0x100,
+};
+
+enum vmd_callouts
+{
+	/** VMD emits this to know if there is a "win386 aware" DOS mouse driver installed.
+	 *  If there is, and the driver responds with CX!=0, VMD will assume
+	 *  the driver is taking care of its own instancing
+	 *  (which we do, through win386_startup_info)
+	 *  and not try to hack around our internals. */
+	VMD_CALLOUT_TEST = 0,
+	/** VMD emits this to know the entrypoint for the API of a "win386 aware"
+	 *  DOS mouse driver. */
+	VMD_CALLOUT_GET_DOS_MOUSE_API = 0x1
+};
+
+enum vmd_dos_mouse_api_actions
+{
+	VMD_ACTION_MOUSE_EVENT = 1,
+	VMD_ACTION_HIDE_CURSOR = 2,
+	VMD_ACTION_SHOW_CURSOR = 3
 };
 
 enum vmd_mouse_type {

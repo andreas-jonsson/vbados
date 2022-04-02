@@ -28,11 +28,6 @@
 #include "vbox.h"
 #include "dostsr.h"
 
-static unsigned get_resident_size(void)
-{
-	return FP_OFF(&resident_end);
-}
-
 #if USE_VIRTUALBOX
 static int set_integration(LPTSRDATA data, bool enable)
 {
@@ -268,7 +263,7 @@ int main(int argc, const char *argv[])
 	LPTSRDATA data = get_tsr_data(true);
 	int err, argi = 1;
 
-	printf("\nVBMouse 0.x (MSMOUSE %x.%x)\n", REPORTED_VERSION_MAJOR, REPORTED_VERSION_MINOR);
+	printf("\nVBMouse %x.%x (like MSMOUSE %x.%x)\n", VERSION_MAJOR, VERSION_MINOR, REPORTED_VERSION_MAJOR, REPORTED_VERSION_MINOR);
 
 	if (argi >= argc || stricmp(argv[argi], "install") == 0) {
 		if (data) {
