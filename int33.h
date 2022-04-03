@@ -16,8 +16,12 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
+
 #ifndef INT33_H
 #define INT33_H
+
+#include <stdint.h>
+#include <stdbool.h>
 
 enum INT33_API {
 	/** Reinitializes mouse hardware and resets mouse to default driver values.
@@ -185,7 +189,8 @@ static uint16_t int33_reset(void);
 #pragma aux int33_reset = \
 	"mov ax, 0x0" \
 	"int 0x33" \
-	__value [ax]
+	__value [ax] \
+	__modify [ax bx]
 
 static void int33_set_horizontal_window(int16_t min, int16_t max);
 #pragma aux int33_set_horizontal_window = \
@@ -221,4 +226,4 @@ static uint16_t int33_get_driver_version(void);
 	__value [bx] \
 	__modify [ax bx cx dx]
 
-#endif
+#endif /* INT33_H */

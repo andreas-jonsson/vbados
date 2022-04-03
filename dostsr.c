@@ -26,6 +26,8 @@
 #include "int33.h"
 #include "dostsr.h"
 
+#define MSB_MASK 0x8000U
+
 TSRDATA data;
 
 static const uint16_t default_cursor_graphic[] = {
@@ -39,6 +41,7 @@ static const uint16_t default_cursor_graphic[] = {
     0x0600, 0x0300, 0x0300, 0x0000
 };
 
+/** Constraint current mouse position to the user-set window. */
 static void bound_position_to_window(void)
 {
 	if (data.pos.x < data.min.x) data.pos.x = data.min.x;
@@ -47,24 +50,10 @@ static void bound_position_to_window(void)
 	if (data.pos.y > data.max.y) data.pos.y = data.max.y;
 }
 
-static inline bool is_text_mode(uint8_t mode)
-{
-	switch (mode) {
-	case 0:
-	case 1:
-	case 2:
-	case 3: // CGA text modes with 25 rows and variable columns
-	case 7: // MDA Mono text mode
-		return true;
-	default:
-		return false;
-	}
-}
-
 static void hide_text_cursor(void)
 {
 	// Restore the character under the old position of the cursor
-	uint16_t __far *ch = get_video_char(data.screen_page,
+	uint16_t __far *ch = get_video_char(&data.video_mode,
 	                                    data.cursor_pos.x / 8, data.cursor_pos.y / 8);
 	*ch = data.cursor_prev_char;
 	data.cursor_visible = false;
@@ -72,7 +61,7 @@ static void hide_text_cursor(void)
 
 static void show_text_cursor(void)
 {
-	uint16_t __far *ch = get_video_char(data.screen_page,
+	uint16_t __far *ch = get_video_char(&data.video_mode,
 	                                    data.pos.x / 8, data.pos.y / 8);
 	data.cursor_prev_char = *ch;
 	data.cursor_pos = data.pos;
@@ -80,15 +69,17 @@ static void show_text_cursor(void)
 	data.cursor_visible = true;
 }
 
+/** Given the new position of the cursor, compute the both our source
+ *  (i.e. the mouse cursor shape) and target clipping areas.
+ *  @param cursor_pos cursor position
+ *  @param start top left corner of clipping box in screen
+ *  @param size size of the clipping box in screen as well as cursor shape
+ *  @param offset top left corner of clipping box in mouse cursor shape */
 static bool get_graphic_cursor_area(struct point __far *cursor_pos,
                                     struct point __far *start,
                                     struct point __far *size,
                                     struct point __far *offset)
 {
-	struct point screen_size;
-	screen_size.x = ((data.screen_max.x + 1) / data.screen_scale.x);
-	screen_size.y = ((data.screen_max.y + 1) / data.screen_scale.y);
-
 	start->x = (cursor_pos->x / data.screen_scale.x) - data.cursor_hotspot.x;
 	start->y = (cursor_pos->y / data.screen_scale.y) - data.cursor_hotspot.y;
 	size->x = GRAPHIC_CURSOR_WIDTH;
@@ -97,133 +88,176 @@ static bool get_graphic_cursor_area(struct point __far *cursor_pos,
 	offset->y = 0;
 
 	// Start clipping around
-	if (start->x < 0) {
+	// Cursor is left/top of visible area
+	if (start->x <= -size->x) {
+		return false;
+	} else if (start->x < 0) {
 		offset->x += -start->x;
+		size->x   -= -start->x;
 		start->x = 0;
 	}
-	if (start->y < 0) {
+	if (start->y <= -size->y) {
+		return false;
+	} else if (start->y < 0) {
 		offset->y += -start->y;
+		size->y   -= -start->y;
 		start->y = 0;
 	}
-	if (start->x > screen_size.x) {
+	// Cursor is right/bottom of visible area
+	if (start->x > data.video_mode.pixels_width) {
 		return false; // Don't render cursor
-	} else if (start->x + size->x > screen_size.x) {
-		size->x -= (start->x + size->x) - screen_size.x;
+	} else if (start->x + size->x > data.video_mode.pixels_width) {
+		size->x -= (start->x + size->x) - data.video_mode.pixels_width;
 	}
-	if (start->y > screen_size.y) {
+	if (start->y > data.video_mode.pixels_height) {
 		return false;
-	} else if (start->y + size->y > screen_size.y) {
-		size->y -= (start->y + size->y) - screen_size.y;
+	} else if (start->y + size->y > data.video_mode.pixels_height) {
+		size->y -= (start->y + size->y) - data.video_mode.pixels_height;
 	}
 
 	return true;
 }
 
-static inline uint8_t * get_prev_graphic_cursor_scanline(unsigned y)
+static inline uint8_t * get_prev_graphic_cursor_scanline(unsigned bytes_per_line,
+                                                         unsigned num_lines,
+                                                         unsigned plane,
+                                                         unsigned y)
 {
-	return &data.cursor_prev_graphic[y * GRAPHIC_CURSOR_WIDTH];
+	return &data.cursor_prev_graphic[((plane * num_lines) + y) * bytes_per_line];
 }
 
-static inline uint16_t get_graphic_cursor_and_mask(unsigned y)
+static inline uint16_t get_graphic_cursor_and_mask_line(unsigned y)
 {
 	return data.cursor_graphic[y];
 }
 
-static inline uint16_t get_graphic_cursor_xor_mask(unsigned y)
+static inline uint16_t get_graphic_cursor_xor_mask_line(unsigned y)
 {
 	return data.cursor_graphic[GRAPHIC_CURSOR_HEIGHT + y];
 }
 
+/** Compute the total number of bytes between start and end pixels,
+ *  rounding up as necessary to cover all bytes. */
+static inline unsigned get_scanline_segment_bytes(unsigned bits_per_pixel, unsigned start, unsigned size)
+{
+	// Get starting byte (round down)
+	unsigned start_byte = (start * bits_per_pixel) / 8;
+	// Get end byte (round up)
+	unsigned end_byte = (((start + size) * bits_per_pixel) + (8-1)) / 8;
+
+	return end_byte - start_byte;
+}
+
+/** Creates a bitmask that extracts the topmost N bits of a byte. */
+static inline uint8_t build_pixel_mask(unsigned bits_per_pixel)
+{
+	if      (bits_per_pixel == 1) return 0x80;
+	else if (bits_per_pixel == 2) return 0xC0;
+	else if (bits_per_pixel == 4) return 0xF0;
+	else                          return 0xFF;
+}
+
+/** Hides the graphical mouse cursor, by restoring the contents of
+ *  data.cursor_prev_graphic (i.e. what was below the cursor before we drew it)
+ *  to video memory. */
 static void hide_graphic_cursor(void)
 {
-	uint8_t __far *pixel;
-	uint8_t *cursor_prev;
+	struct modeinfo *info = &data.video_mode;
 	struct point start, size, offset;
-	unsigned pixels_per_byte, y, x;
+	unsigned cursor_bytes_per_line;
+	unsigned plane, y;
 
 	// Compute the area where the cursor is currently positioned
 	if (!get_graphic_cursor_area(&data.cursor_pos, &start, &size, &offset)) {
 		return;
 	}
 
-	switch (data.screen_mode) {
-	case 4:
-	case 5:
-	case 6: // CGA modes
-		pixels_per_byte = data.screen_mode == 0x6 ? 8 : 4;
+	// For each scanline, we will copy this amount of bytes
+	cursor_bytes_per_line = get_scanline_segment_bytes(info->bits_per_pixel,
+	                                                   start.x, size.x);
+
+	for (plane = 0; plane < info->num_planes; plane++) {
+		if (info->num_planes) vga_select_plane(plane);
 
 		for (y = 0; y < size.y; y++) {
-			cursor_prev = get_prev_graphic_cursor_scanline(offset.y + y);
-			pixel = get_video_scanline(data.screen_mode, data.screen_page, start.y + y)
-			        + start.x / pixels_per_byte;
+			uint8_t __far *line = get_video_scanline(info, start.y + y)
+			                      + (start.x * info->bits_per_pixel) / 8;
+			uint8_t *prev = get_prev_graphic_cursor_scanline(cursor_bytes_per_line, size.y,
+			                                                 plane, y);
 
 			// Restore this scaline from cursor_prev
-			nfmemcpy(pixel, cursor_prev,
-			         ((start.x % pixels_per_byte) + size.x + (pixels_per_byte - 1)) / pixels_per_byte);
+			nfmemcpy(line, prev, cursor_bytes_per_line);
 		}
-
-		break;
 	}
 
 	data.cursor_visible = false;
 }
 
+/** Renders the graphical cursor.
+ *  It will also backup whatever pixels are below
+ *  the cursor area to cursor_prev_graphic. */
 static void show_graphic_cursor(void)
 {
-	static const uint16_t msb_mask = 0x8000;
-	uint16_t cursor_and_mask, cursor_xor_mask;
-	uint8_t __far *pixel, pixel_mask;
-	uint8_t *cursor_prev;
+	const struct modeinfo *info = &data.video_mode;
 	struct point start, size, offset;
-	unsigned pixels_per_byte, x, y;
+	unsigned cursor_bytes_per_line;
+	const uint8_t msb_pixel_mask = build_pixel_mask(info->bits_per_pixel);
+	unsigned plane, y;
 
 	// Compute the area where the cursor is supposed to be drawn
 	if (!get_graphic_cursor_area(&data.pos, &start, &size, &offset)) {
 		return;
 	}
 
-	switch (data.screen_mode) {
-	case 4:
-	case 5:
-	case 6: // CGA modes
-		pixels_per_byte = data.screen_mode == 0x6 ? 8 : 4;
+	// For each scanline, we will copy this amount of bytes
+	cursor_bytes_per_line = get_scanline_segment_bytes(info->bits_per_pixel,
+	                                                   start.x, size.x);
+
+	for (plane = 0; plane < info->num_planes; plane++) {
+		if (info->num_planes) vga_select_plane(plane);
 
 		for (y = 0; y < size.y; y++) {
-			cursor_and_mask = get_graphic_cursor_and_mask(offset.y + y) << offset.x;
-			cursor_xor_mask = get_graphic_cursor_xor_mask(offset.y + y) << offset.y;
-			cursor_prev = get_prev_graphic_cursor_scanline(offset.y + y);
-			pixel = get_video_scanline(data.screen_mode, data.screen_page, start.y + y)
-			        + start.x / pixels_per_byte;
+			uint8_t __far *line = get_video_scanline(info, start.y + y)
+			                      + (start.x * info->bits_per_pixel) / 8;
+			uint8_t *prev = get_prev_graphic_cursor_scanline(cursor_bytes_per_line, size.y,
+			                                                 plane, y);
+			uint16_t cursor_and_mask = get_graphic_cursor_and_mask_line(offset.y + y)
+			                           << offset.x;
+			uint16_t cursor_xor_mask = get_graphic_cursor_xor_mask_line(offset.y + y)
+			                           << offset.x;
+			uint8_t pixel_mask = msb_pixel_mask;
+			unsigned x;
 
-			// First copy this scanline to cursor_prev before any changes
-			fnmemcpy(cursor_prev, pixel,
-			         ((start.x % pixels_per_byte) + size.x + (pixels_per_byte - 1)) / pixels_per_byte);
+			// First, backup this scanline to prev before any changes
+			fnmemcpy(prev, line, cursor_bytes_per_line);
 
-			// pixel points the previous multiple of pixels_per_byte;
-			// now advance to the start of cursor while updating the pixel_mask
-			pixel_mask = pixels_per_byte == 8 ? 0x80 : 0xC0;
-			for (x = 0; x < (start.x % pixels_per_byte); x++) {
-				pixel_mask >>= 8 / pixels_per_byte;
+			// when start.x is not pixel aligned,
+			// scaline points the previous multiple of pixels_per_byte;
+			// and the initial pixel will not be at the MSB of it.
+			// advance the pixel_mask accordingly
+			if (info->bits_per_pixel < 8) {
+				pixel_mask >>= (start.x * info->bits_per_pixel) % 8;
 			}
 
-			// Now pixel points to the start of cursor
-			for (; x < (start.x % pixels_per_byte) + size.x; x++) {
-				uint8_t rest = *pixel & ~pixel_mask;
+			for (x = 0; x < size.x; x++) {
+				uint8_t pixel = *line;
 
-				if (!(cursor_and_mask & msb_mask)) {
-					*pixel = rest;
+				if (!(cursor_and_mask & MSB_MASK)) {
+					pixel &= ~pixel_mask;
 				}
-				if (cursor_xor_mask & msb_mask) {
-					*pixel = rest | (*pixel ^ 0xFF) & pixel_mask;
+				if (cursor_xor_mask & MSB_MASK) {
+					pixel ^= pixel_mask;
+				}
+				if (!(cursor_and_mask & MSB_MASK) || (cursor_xor_mask & MSB_MASK)) {
+					*line = pixel;
 				}
 
 				// Advance to the next pixel
-				if (x % pixels_per_byte == pixels_per_byte - 1) {
-					// Next iteration starts new byte, reload pixel_mask
-					pixel++;
-					pixel_mask = pixels_per_byte == 8 ? 0x80 : 0xC0;
-				} else {
-					pixel_mask >>= 8 / pixels_per_byte;
+				pixel_mask >>= info->bits_per_pixel;
+				if (!pixel_mask) {
+					// Time to advance to the next byte
+					line++;
+					pixel_mask = msb_pixel_mask;
 				}
 
 				// Advance to the next bit in the cursor mask
@@ -231,12 +265,6 @@ static void show_graphic_cursor(void)
 				cursor_xor_mask <<= 1;
 			}
 		}
-		break;
-	default:
-		dlog_print("Graphic mode 0x");
-		dlog_printx(data.screen_mode);
-		dlog_puts(" not supported");
-		return;
 	}
 
 	data.cursor_pos = data.pos;
@@ -247,6 +275,7 @@ static void show_graphic_cursor(void)
 static void refresh_cursor(void)
 {
 	bool should_show = data.visible_count >= 0;
+	bool pos_changed, needs_refresh;
 
 #if USE_INT2F
 	// Windows 386 is already rendering the cursor for us.
@@ -256,21 +285,32 @@ static void refresh_cursor(void)
 
 #if USE_VIRTUALBOX
 	if (data.vbwantcursor) {
+		// We want to use the VirtualBox host cursor.
+		// See if we have to update its visibility.
 		int err = 0;
 		if (should_show != data.cursor_visible) {
-			int err = vbox_set_pointer_visible(&data.vb, should_show);
+			err = vbox_set_pointer_visible(&data.vb, should_show);
 			if (err == 0 && data.vbhaveabs) {
 				data.cursor_visible = should_show;
 			}
 		}
 		if (err == 0 & data.vbhaveabs) {
-			// No need to show the cursor; VirtualBox is already showing it for us.
+			// No need to refresh the cursor; VirtualBox is already showing it for us.
 			return;
 		}
 	}
 #endif
 
-	if (is_text_mode(data.screen_mode)) {
+	pos_changed = data.cursor_pos.x != data.pos.x || data.cursor_pos.y != data.pos.y;
+	needs_refresh = should_show && pos_changed || should_show != data.cursor_visible;
+
+	if (!needs_refresh) {
+		// Nothing to do
+		return;
+	}
+
+	if (data.video_mode.type == VIDEO_TEXT) {
+		// Text video mode
 		if (data.cursor_visible) {
 			// Hide the cursor at the old position if any
 			hide_text_cursor();
@@ -279,13 +319,30 @@ static void refresh_cursor(void)
 			// Show the cursor at the new position
 			show_text_cursor();
 		}
-	} else {
+	} else if (data.video_mode.type != VIDEO_UNKNOWN) {
+		// Graphic video modes
+
+		bool video_planar = data.video_mode.num_planes > 1;
+		struct videoregs regs;
+		// If current video mode is planar,
+		// we will have to play with the VGA registers
+		// so let's save and restore them.
+		if (video_planar) {
+			save_video_registers(&regs);
+		}
+
 		if (data.cursor_visible) {
 			hide_graphic_cursor();
 		}
 		if (should_show) {
 			show_graphic_cursor();
 		}
+
+		if (video_planar) {
+			restore_video_registers(&regs);
+		}
+	} else {
+		// Unknown video mode, don't render cursor.
 	}
 }
 
@@ -301,12 +358,10 @@ static void hide_cursor(void)
 	}
 #endif
 
-	if (is_text_mode(data.screen_mode)) {
-		if (data.cursor_visible) {
+	if (data.cursor_visible) {
+		if (data.video_mode.type == VIDEO_TEXT) {
 			hide_text_cursor();
-		}
-	} else {
-		if (data.cursor_visible) {
+		} else if (data.video_mode.type != VIDEO_UNKNOWN) {
 			hide_graphic_cursor();
 		}
 	}
@@ -320,15 +375,12 @@ static void load_cursor(void)
 	if (data.vbwantcursor) {
 		VMMDevReqMousePointer *req = (VMMDevReqMousePointer *) data.vb.buf;
 		const unsigned width = GRAPHIC_CURSOR_WIDTH, height = GRAPHIC_CURSOR_HEIGHT;
-		const unsigned and_mask_size = (width + 7) / 8 * height;
-		const unsigned xor_mask_size = width * height * 4;
-		const unsigned data_size = and_mask_size + xor_mask_size;
-		const unsigned full_size = MAX(sizeof(VMMDevReqMousePointer), 24 + 20 + data_size);
-		unsigned int offset = 0, y, x;
+		uint8_t  *output = req->pointerData;
+		unsigned int y, x;
 
-		bzero(req, full_size);
+		bzero(req, sizeof(VMMDevReqMousePointer));
 
-		req->header.size = full_size;
+		req->header.size = vbox_req_mouse_pointer_size(width, height);
 		req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
 		req->header.requestType = VMMDevReq_SetPointerShape;
 		req->header.rc = -1;
@@ -339,28 +391,34 @@ static void load_cursor(void)
 		req->width = width;
 		req->height = height;
 
-		// Just byteswap the AND mask
+		// AND mask
+		// int33 format is 1-bit per pixel packed into 16-bit LE values,
+		// while VirtualBox wants 1-bit per pixel packed into 8-bit.
+		// All we have to do is byteswap 16-bit values.
 		for (y = 0; y < height; ++y) {
-			uint16_t line = get_graphic_cursor_and_mask(y);
-			req->pointerData[(y*2)]   = (line >> 8) & 0xFF;
-			req->pointerData[(y*2)+1] = line & 0xFF;
+			uint16_t cursor_line = get_graphic_cursor_and_mask_line(y);
+			output[0] = (cursor_line >> 8) & 0xFF;
+			output[1] = cursor_line & 0xFF;
+			output += GRAPHIC_CURSOR_SCANLINE_LEN;
 		}
-		offset += and_mask_size;
 
-		// But the XOR mask needs to be converted to huge 4-byte "RGBA" format.
+		// XOR mask
+		// int33 format is again 1-bit per pixel packed into 16-bit LE values,
+		// however VirtualBox wants 4-byte per pixel packed "RGBA".
 		for (y = 0; y < height; ++y) {
-			uint16_t line = get_graphic_cursor_xor_mask(y);
+			uint16_t cursor_line = get_graphic_cursor_xor_mask_line(y);
 
 			for (x = 0; x < width; ++x) {
-				unsigned int pos = offset + (y * width * 4) + (x*4) + 0;
-				uint8_t val = (line & 0x8000) ? 0xFF : 0;
+				// MSB of line is current mask bit, we shift it on each iteration
+				uint8_t val = (cursor_line & MSB_MASK) ? 0xFF : 0;
 
-				req->pointerData[pos + 0] = val;
-				req->pointerData[pos + 1] = val;
-				req->pointerData[pos + 2] = val;
-				req->pointerData[pos + 3] = 0;
+				output[0] = val;
+				output[1] = val;
+				output[2] = val;
+				output[3] = 0;
 
-				line <<= 1;
+				cursor_line <<= 1;
+				output += 4;
 			}
 		}
 
@@ -384,8 +442,8 @@ static void load_cursor(void)
 /** Refreshes the information about the current video mode. */
 static void refresh_video_info(void)
 {
-	uint8_t mode = bda_get_video_mode() & ~0x80;
-	bool mode_change = mode != data.screen_mode;
+	uint8_t cur_mode = bda_get_video_mode() & ~0x80;
+	bool mode_change = cur_mode != data.video_mode.mode;
 
 	if (mode_change && data.cursor_visible) {
 		// Assume cursor is lost
@@ -393,63 +451,22 @@ static void refresh_video_info(void)
 	}
 
 	dlog_print("Current video mode=");
-	dlog_printx(mode);
-	dlog_print(" with cols=");
-	dlog_printd(bda_get_num_columns());
-	dlog_print(" lastrow=");
-	dlog_printd(bda_get_last_row());
+	dlog_printx(cur_mode);
 	dlog_endline();
 
-	data.screen_mode = mode;
-	data.screen_page = bda_get_cur_video_page();
+	get_current_video_mode_info(&data.video_mode);
+
+	data.screen_max.x = data.video_mode.pixels_width - 1;
+	data.screen_max.y = data.video_mode.pixels_height - 1;
 	data.screen_scale.x = 1;
 	data.screen_scale.y = 1;
 
-	// Compute screen coordinates which are used to events from
-	// absolute mouse coordinates.
-	switch (mode) {
-	case 0:
-	case 1:
-	case 2:
-	case 3: // CGA text modes with 25 rows and variable columns
-	case 7: // MDA Mono text mode
-		data.screen_max.x = (bda_get_num_columns() * 8) - 1;
-		data.screen_max.y = (                   25 * 8) - 1;
-		break;
-
-	case 4:
-	case 5: // CGA low-res modes
-	case 0xd: // EGA low-res mode
+	// The actual range of coordinates expected by int33 clients
+	// is, for some reason, different than real resolution in some modes.
+	// For example, 320x... modes are mapped to 640x... pixels.
+	if (data.video_mode.pixels_width == 320) {
 		data.screen_max.x = 640 - 1;
-		data.screen_max.y = 200 - 1;
-		data.screen_scale.x = 2; // Really 320x200
-		break;
-
-	case 6: // CGA hi-res mode
-	case 0xe: // EGA modes
-	case 0x13: // VGA 256color mode
-		data.screen_max.x = 640 - 1;
-		data.screen_max.y = 200 - 1;
-		break;
-
-	case 0xf:
-	case 0x10: // EGA 640x350 modes
-		data.screen_max.x = 640 - 1;
-		data.screen_max.y = 350 - 1;
-		break;
-
-	case 0x11:
-	case 0x12: // VGA 640x480 modes
-		data.screen_max.x = 640 - 1;
-		data.screen_max.y = 480 - 1;
-		break;
-
-	default:
-		// Unknown mode; assume default coordinates
-		// Note that if program sets up larger window coordinates, we'll use that instead.
-		data.screen_max.x = 640 - 1;
-		data.screen_max.y = 200 - 1;
-		break;
+		data.screen_scale.x = 640 / 320;
 	}
 }
 
@@ -602,6 +619,7 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 	}
 }
 
+/** PS/2 BIOS calls this routine to notify mouse events. */
 static void __far ps2_mouse_callback(uint8_t status, uint8_t x, uint8_t y, uint8_t z)
 {
 #pragma aux (PS2_CB) ps2_mouse_callback
@@ -694,6 +712,7 @@ static void reset_mouse_hardware()
 	ps2m_enable(true);
 }
 
+/** Reset "software" mouse settings, i.e. those configurable by the client program. */
 static void reset_mouse_settings()
 {
 	data.event_mask = 0;
@@ -717,6 +736,7 @@ static void reset_mouse_settings()
 	refresh_cursor(); // This will hide the cursor and update data.cursor_visible
 }
 
+/** Reset the current mouse state and throw away past events. */
 static void reset_mouse_state()
 {
 	int i;
@@ -765,6 +785,7 @@ static void return_clear_button_counter(union INTPACK __far *r, struct buttoncou
 	c->count = 0;
 }
 
+/** Entry point for our int33 API. */
 static void int33_handler(union INTPACK r)
 #pragma aux int33_handler "*" parm caller [] modify [ax bx cx dx es]
 {
@@ -861,7 +882,7 @@ static void int33_handler(union INTPACK r)
 		hide_cursor();
 		data.cursor_hotspot.x = r.x.bx;
 		data.cursor_hotspot.y = r.x.cx;
-		fnmemcpy(data.cursor_graphic, MK_FP(r.x.es, r.x.dx), 64);
+		fnmemcpy(data.cursor_graphic, MK_FP(r.x.es, r.x.dx), sizeof(data.cursor_graphic));
 		load_cursor();
 		refresh_cursor();
 		break;
@@ -1016,6 +1037,7 @@ void __declspec(naked) __far int33_isr(void)
 }
 
 #if USE_INT2F
+/** Windows will call this function to notify events when we are inside a DOS box. */
 static void windows_mouse_handler(int action, int x, int y, int buttons, int events)
 #pragma aux windows_mouse_handler "*" parm [ax] [bx] [cx] [dx] [si] modify [ax bx cx dx es]
 {

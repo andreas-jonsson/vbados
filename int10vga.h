@@ -5,18 +5,6 @@
 
 #define BIOS_DATA_AREA_SEGMENT 0x40
 
-// TODO Assuming screenwidth, videopage on ss rather than using far
-static uint8_t int10_get_video_mode(uint8_t *screenwidth, uint8_t *videopage);
-#pragma aux int10_get_video_mode = \
-	"mov al, 0" \
-	"mov ah, 0x0F" \
-	"int 0x10" \
-	"mov ss:[si], ah" \
-	"mov ss:[di], bh" \
-	__parm [si] [di] \
-	__value [al] \
-	__modify [ax bh]
-
 static inline uint32_t bda_get_dword(unsigned int offset) {
 	uint32_t __far *p = MK_FP(BIOS_DATA_AREA_SEGMENT, offset);
 	return *p;
@@ -43,29 +31,183 @@ static inline uint8_t bda_get_byte(unsigned int offset) {
 #define bda_get_tick_count()      bda_get_dword(0x6c)
 #define bda_get_tick_count_lo()   bda_get_word(0x6c)
 
-static inline uint16_t __far * get_video_char(uint8_t page, unsigned int x, unsigned int y)
-{
-	return MK_FP(0xB800, (page * bda_get_video_page_size())
-	                     + ((y * bda_get_num_columns()) + x) * 2);
-}
+enum videotype {
+	VIDEO_UNKNOWN,
+	VIDEO_TEXT,
+	VIDEO_CGA,
+	VIDEO_EGA,
+	VIDEO_VGA
+};
 
-static inline uint8_t __far * get_video_scanline(uint8_t mode, uint8_t page, unsigned int y)
+struct modeinfo {
+	uint8_t mode;
+	uint8_t page;
+	enum videotype type;
+
+	uint16_t pixels_width, pixels_height;
+	uint16_t bytes_per_line;
+	uint16_t odd_scanline_offset;
+	uint8_t bits_per_pixel;
+	uint8_t num_planes;
+
+	/** Pointer to video memory. */
+	uint8_t __far * begin;
+};
+
+static void get_current_video_mode_info(struct modeinfo *info)
 {
-	switch (mode) {
+	uint16_t segment;
+
+	info->mode = bda_get_video_mode() & ~0x80;
+	info->page = bda_get_cur_video_page();
+
+	info->odd_scanline_offset = 0;
+
+	switch (info->mode) {
+	case 0:
+	case 1:
+	case 2:
+	case 3: // CGA text modes with 25 rows and variable columns
+	case 7: // MDA Mono text mode
+		info->type = VIDEO_TEXT;
+		info->pixels_width = bda_get_num_columns() * 8;
+		info->pixels_height = (bda_get_last_row()+1) * 8;
+		info->bytes_per_line = bda_get_num_columns() * 2;
+		info->bits_per_pixel = 2 * 8;
+		info->num_planes = 1;
+		segment = 0xB800;
+		break;
+
 	case 4:
-	case 5:
-	case 6: // CGA modes
-		// Scalines are 80 bytes long, however they are interleaved.
-		// Even numbered scanlines begin at 0, odd lines begin at 0x2000.
-		// So offset by y%2 * 0x2000.
-		return MK_FP(0xB800, (page * bda_get_video_page_size())
-		                      + ((y/2) * 80) + (y%2) * 0x2000);
+	case 5: // CGA 320x200 4-color
+		info->type = VIDEO_CGA;
+		info->pixels_width = 320;
+		info->pixels_height = 200;
+		info->bytes_per_line = 80;
+		info->odd_scanline_offset = 0x2000;
+		info->bits_per_pixel = 2;
+		info->num_planes = 1;
+		segment = 0xB800;
+		break;
+
+	case 6: // CGA 640x200 2-color
+		info->type = VIDEO_CGA;
+		info->pixels_width = 640;
+		info->pixels_height = 200;
+		info->bytes_per_line = 80;
+		info->odd_scanline_offset = 0x2000;
+		info->bits_per_pixel = 1;
+		info->num_planes = 1;
+		segment = 0xB800;
+		break;
+
+	case 0xd: // EGA 320x200 16-color
+		info->type = VIDEO_EGA;
+		info->pixels_width = 320;
+		info->pixels_height = 200;
+		info->bytes_per_line = 40;
+		info->bits_per_pixel = 1;
+		info->num_planes = 4;
+		segment = 0xA000;
+		break;
+
+	case 0xe: // EGA 640x200 16-color
+		info->type = VIDEO_EGA;
+		info->pixels_width = 640;
+		info->pixels_height = 200;
+		info->bytes_per_line = 80;
+		info->bits_per_pixel = 1;
+		info->num_planes = 4;
+		segment = 0xA000;
+		break;
+
+	case 0xf: // EGA 640x350 4-color
+		info->type = VIDEO_EGA;
+		info->pixels_width = 640;
+		info->pixels_height = 350;
+		info->bytes_per_line = 80;
+		info->bits_per_pixel = 1;
+		info->num_planes = 2;
+		segment = 0xA000;
+		break;
+
+	case 0x10: // EGA 640x350 16-color
+		info->type = VIDEO_EGA;
+		info->pixels_width = 640;
+		info->pixels_height = 350;
+		info->bytes_per_line = 80;
+		info->bits_per_pixel = 1;
+		info->num_planes = 4;
+		segment = 0xA000;
+		break;
+
+	case 0x11: // VGA 640x480 2-color
+	case 0x12: // VGA 640x480 16-color
+		info->type = VIDEO_VGA;
+		info->pixels_width = 640;
+		info->pixels_height = 480;
+		info->bytes_per_line = 80;
+		info->bits_per_pixel = 1;
+		info->num_planes = 4;
+		segment = 0xA000;
+		break;
+
+	case 0x13: // VGA 320x200 256-color
+		info->type = VIDEO_VGA;
+		info->pixels_width = 320;
+		info->pixels_height = 200;
+		info->bytes_per_line = 320;
+		info->bits_per_pixel = 8;
+		info->num_planes = 1;
+		segment = 0xA000;
+		break;
+
 
 	default:
-		return 0;
+		info->type = VIDEO_UNKNOWN;
+		// Let's put in some default coordinates at leas
+		info->pixels_width = 640;
+		info->pixels_height = 200;
+		segment = 0;
+	}
+
+	info->begin = MK_FP(segment, info->page * bda_get_video_page_size());
+}
+
+static inline uint16_t __far * get_video_char(const struct modeinfo *info, unsigned int x, unsigned int y)
+{
+	return (uint16_t __far *) (info->begin + (y * info->bytes_per_line) + (x * 2));
+}
+
+static inline uint8_t __far * get_video_scanline(const struct modeinfo *info, unsigned int y)
+{
+	if (info->odd_scanline_offset) {
+		return info->begin
+		        + (y%2 * info->odd_scanline_offset)
+		        + (y/2 * info->bytes_per_line);
+	} else {
+		return info->begin
+		        + (y * info->bytes_per_line);
 	}
 }
 
+struct videoregs {
+	uint16_t dummy;
+};
 
+static void save_video_registers(struct videoregs *regs)
+{
+	// TODO
+}
+
+static void restore_video_registers(struct videoregs *regs)
+{
+	// TODO
+}
+
+static inline void vga_select_plane(unsigned plane)
+{
+	// TODO
+}
 
 #endif

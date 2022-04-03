@@ -145,4 +145,13 @@ static int vbox_set_pointer_visible(LPVBOXCOMM vb, bool visible)
 	return req->header.rc;
 }
 
+/** Computes size of a VMMDevReqMousePointer message. */
+static inline unsigned vbox_req_mouse_pointer_size(unsigned width, unsigned height)
+{
+	const unsigned and_mask_size = (width + 7) / 8 * height;
+	const unsigned xor_mask_size = width * height * 4;
+	const unsigned data_size = and_mask_size + xor_mask_size;
+	return MAX(sizeof(VMMDevReqMousePointer), 24 + 20 + data_size);
+}
+
 #endif

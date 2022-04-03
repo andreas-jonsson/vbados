@@ -25,6 +25,7 @@
 
 #include "vbox.h"
 #include "int2fwin.h"
+#include "int10vga.h"
 
 #define USE_VIRTUALBOX 1
 #define USE_INT2F 1
@@ -34,6 +35,9 @@
 
 #define GRAPHIC_CURSOR_WIDTH 16
 #define GRAPHIC_CURSOR_HEIGHT 16
+#define GRAPHIC_CURSOR_SCANLINE_LEN 2
+#define GRAPHIC_CURSOR_MASK_LEN (GRAPHIC_CURSOR_HEIGHT * GRAPHIC_CURSOR_SCANLINE_LEN)
+#define GRAPHIC_CURSOR_DATA_LEN (2 * GRAPHIC_CURSOR_MASK_LEN)
 
 #define VERSION_MAJOR 0
 #define VERSION_MINOR 3
@@ -55,16 +59,15 @@ typedef struct tsrdata {
 	bool usewheel;
 
 	// Video settings
-	/** Current video mode. */
-	uint8_t screen_mode;
-	/** Active video page. */
-	uint8_t screen_page;
+	/** Information of the current video mode. */
+	struct modeinfo video_mode;
 	/** Max (virtual) coordinates of full screen in the current mode.
 	 *  Used for rendering graphic cursor, mapping absolute coordinates,
 	 *  and initializing the default min/max window. */
 	struct point screen_max;
-	/** Some graphic modes have pixel doubling, so the virtual coordinates
-	 *  are double vs real framebuffer coordinates. */
+	/** In some modes, the virtual coordinates are larger than the
+	 *  physical screen coordinates.
+	 *  real coordinates = virtual coordinates * screen_scale. */
 	struct point screen_scale;
 
 	// Detected mouse hardware
@@ -89,7 +92,7 @@ typedef struct tsrdata {
 	/** Hotspot for the graphic cursor. */
 	struct point cursor_hotspot;
 	/** Masks for the graphic cursor. */
-	uint16_t cursor_graphic[GRAPHIC_CURSOR_HEIGHT*2];
+	uint16_t cursor_graphic[GRAPHIC_CURSOR_DATA_LEN/sizeof(uint16_t)];
 
 	// Current mouse status
 	/** Current cursor position (in pixels). */

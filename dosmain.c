@@ -24,6 +24,7 @@
 #include <i86.h>
 
 #include "dlog.h"
+#include "int33.h"
 #include "ps2.h"
 #include "vbox.h"
 #include "dostsr.h"
@@ -85,7 +86,7 @@ static int set_integration(LPTSRDATA data, bool enable)
 			printf("Disabled VirtualBox integration\n");
 			data->vbavail = false;
 		} else {
-			printf("VirtualBox already disabled or not available\n");
+			printf("VirtualBox integration already disabled or not available\n");
 		}
 	}
 
@@ -164,17 +165,17 @@ static bool check_if_driver_uninstallable(LPTSRDATA data)
 	void (__interrupt __far *our_int33_handler)() = MK_FP(FP_SEG(data), FP_OFF(int33_isr));
 
 	if (cur_int33_handler != our_int33_handler) {
-		fprintf(stderr, "INT33 has been hooked by some other driver, removing anyway (will likely crash soon)\n");
+		fprintf(stderr, "INT33 has been hooked by someone else, removing anyway\n");
 		return true;
 	}
 
 #if USE_INT2F
 	{
-		void (__interrupt __far *cur_int2f_handler)() = _dos_getvect(0x33);
+		void (__interrupt __far *cur_int2f_handler)() = _dos_getvect(0x2f);
 		void (__interrupt __far *our_int2f_handler)() = MK_FP(FP_SEG(data), FP_OFF(int2f_isr));
 
 		if (cur_int2f_handler != our_int2f_handler) {
-			fprintf(stderr, "INT2F has been hooked by some other driver, removing anyway (will likely crash soon)\n");
+			fprintf(stderr, "INT2F has been hooked by someone else, removing anyway\n");
 			return true;
 		}
 	}
@@ -214,18 +215,10 @@ static int uninstall_driver(LPTSRDATA data)
 	return 0;
 }
 
-static unsigned int33_call(unsigned ax);
-#pragma aux int33_call parm [ax] value [ax] = \
-	"int 0x33";
-
-static unsigned int2f_call(unsigned ax);
-#pragma aux int2f_call parm [ax] value [ax] = \
-	"int 0x2f";
-
 static int driver_reset(void)
 {
 	printf("Reset mouse driver\n");
-	return int33_call(0x0) == 0xFFFF;
+	return int33_reset() == 0xFFFF;
 }
 
 static int driver_not_found(void)
