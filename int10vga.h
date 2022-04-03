@@ -2,6 +2,7 @@
 #define INT10_H
 
 #include <stdint.h>
+#include <conio.h>
 
 #define BIOS_DATA_AREA_SEGMENT 0x40
 
@@ -191,23 +192,101 @@ static inline uint8_t __far * get_video_scanline(const struct modeinfo *info, un
 	}
 }
 
-struct videoregs {
-	uint16_t dummy;
+enum vga_io_ports {
+	VGA_PORT_SC_ADDRESS = 0x3c4,
+	VGA_PORT_SC_DATA    = 0x3c5,
+	VGA_PORT_GC_ADDRESS = 0x3ce,
+	VGA_PORT_GC_DATA    = 0x3cf
 };
 
-static void save_video_registers(struct videoregs *regs)
+enum vga_sc_regs {
+	VGA_SC_REG_MAP_MASK = 2
+};
+
+enum vga_gc_regs {
+	VGA_GC_REG_SET_RESET = 0,
+	VGA_GC_REG_ENABLE_SET_RESET = 1,
+	VGA_GC_REG_DATA_ROTATE = 3,
+	VGA_GC_REG_READ_MAP = 4,
+	VGA_GC_REG_GRAPHICS_MODE = 5,
+	VGA_GC_REG_BIT_MASK = 8
+};
+
+struct videoregs {
+	uint8_t sc_reg;
+	uint8_t sc_map_mask;
+	uint8_t gc_reg;
+	uint8_t gc_enable_set_reset;
+	uint8_t gc_data_rotate;
+	uint8_t gc_graphics_mode;
+	uint8_t gc_read_map;
+	uint8_t gc_bit_mask;
+};
+
+static inline uint8_t vga_sc_reg_read(uint8_t reg)
 {
-	// TODO
+	outp(VGA_PORT_SC_ADDRESS, reg);
+	return inp(VGA_PORT_SC_DATA);
 }
 
-static void restore_video_registers(struct videoregs *regs)
+static inline void vga_sc_reg_write(uint8_t reg, uint8_t val)
 {
-	// TODO
+	// Do one 16-bit write, the higher part will be the data while the lower byte the register.
+	outpw(VGA_PORT_SC_ADDRESS, (val << 8) | reg);
+}
+
+static inline uint8_t vga_gc_reg_read(uint8_t reg)
+{
+	outp(VGA_PORT_GC_ADDRESS, reg);
+	return inp(VGA_PORT_GC_DATA);
+}
+
+static inline void vga_gc_reg_write(uint8_t reg, uint8_t val)
+{
+	outpw(VGA_PORT_GC_ADDRESS, (val << 8) | reg);
+}
+
+static void vga_save_registers(struct videoregs __far *regs)
+{
+	regs->sc_reg = inp(VGA_PORT_SC_ADDRESS);
+	regs->sc_map_mask = vga_sc_reg_read(VGA_SC_REG_MAP_MASK);
+	regs->gc_reg = inp(VGA_PORT_GC_ADDRESS);
+	regs->gc_enable_set_reset = vga_gc_reg_read(VGA_GC_REG_ENABLE_SET_RESET);
+	regs->gc_data_rotate = vga_gc_reg_read(VGA_GC_REG_DATA_ROTATE);
+	regs->gc_read_map = vga_gc_reg_read(VGA_GC_REG_READ_MAP);
+	regs->gc_graphics_mode = vga_gc_reg_read(VGA_GC_REG_GRAPHICS_MODE);
+	regs->gc_bit_mask = vga_gc_reg_read(VGA_GC_REG_BIT_MASK);
+}
+
+static void vga_restore_register(struct videoregs __far *regs)
+{
+	vga_sc_reg_write(VGA_SC_REG_MAP_MASK, regs->sc_map_mask);
+	outp(VGA_PORT_SC_ADDRESS, regs->sc_reg);
+	vga_gc_reg_write(VGA_GC_REG_ENABLE_SET_RESET, regs->gc_enable_set_reset);
+	vga_gc_reg_write(VGA_GC_REG_DATA_ROTATE, regs->gc_data_rotate);
+	vga_gc_reg_write(VGA_GC_REG_READ_MAP, regs->gc_read_map);
+	vga_gc_reg_write(VGA_GC_REG_GRAPHICS_MODE, regs->gc_graphics_mode);
+	vga_gc_reg_write(VGA_GC_REG_BIT_MASK, regs->gc_bit_mask);
+	outp(VGA_PORT_GC_ADDRESS, regs->gc_reg);
+}
+
+static void vga_set_graphics_mode(struct videoregs __far *regs, unsigned read, unsigned write)
+{
+	vga_gc_reg_write(VGA_GC_REG_GRAPHICS_MODE, (regs->gc_graphics_mode & ~(8|3))
+	                                           | ((read << 3) & 8) | write & 3);
+	if (write == 0) {
+		// Set registers to a reasonable default ...
+		vga_gc_reg_write(VGA_GC_REG_ENABLE_SET_RESET, 0);
+		vga_gc_reg_write(VGA_GC_REG_DATA_ROTATE, 0);
+		vga_gc_reg_write(VGA_GC_REG_BIT_MASK, 0xFF);
+	}
 }
 
 static inline void vga_select_plane(unsigned plane)
 {
-	// TODO
+	vga_gc_reg_write(VGA_GC_REG_READ_MAP, plane & 0x3);
+	vga_sc_reg_write(VGA_SC_REG_MAP_MASK, 1 << plane);
+
 }
 
 #endif

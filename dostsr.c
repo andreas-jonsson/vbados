@@ -332,7 +332,8 @@ static void refresh_cursor(void)
 		// we will have to play with the VGA registers
 		// so let's save and restore them.
 		if (video_planar) {
-			save_video_registers(&regs);
+			vga_save_registers(&regs);
+			vga_set_graphics_mode(&regs, 0, 0);
 		}
 
 		if (data.cursor_visible) {
@@ -343,7 +344,7 @@ static void refresh_cursor(void)
 		}
 
 		if (video_planar) {
-			restore_video_registers(&regs);
+			vga_restore_register(&regs);
 		}
 	} else {
 		// Unknown video mode, don't render cursor.
