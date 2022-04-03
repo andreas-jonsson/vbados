@@ -226,6 +226,7 @@ static void show_graphic_cursor(void)
 			uint16_t cursor_xor_mask = get_graphic_cursor_xor_mask_line(offset.y + y)
 			                           << offset.x;
 			uint8_t pixel_mask = msb_pixel_mask;
+			uint8_t pixel = *line;
 			unsigned x;
 
 			// First, backup this scanline to prev before any changes
@@ -240,29 +241,30 @@ static void show_graphic_cursor(void)
 			}
 
 			for (x = 0; x < size.x; x++) {
-				uint8_t pixel = *line;
-
 				if (!(cursor_and_mask & MSB_MASK)) {
 					pixel &= ~pixel_mask;
 				}
 				if (cursor_xor_mask & MSB_MASK) {
 					pixel ^= pixel_mask;
 				}
-				if (!(cursor_and_mask & MSB_MASK) || (cursor_xor_mask & MSB_MASK)) {
-					*line = pixel;
-				}
 
 				// Advance to the next pixel
 				pixel_mask >>= info->bits_per_pixel;
 				if (!pixel_mask) {
 					// Time to advance to the next byte
-					line++;
+					*line = pixel; // Save current byte first
+					pixel = *(++line);
 					pixel_mask = msb_pixel_mask;
 				}
 
 				// Advance to the next bit in the cursor mask
 				cursor_and_mask <<= 1;
 				cursor_xor_mask <<= 1;
+			}
+
+			if (pixel_mask != msb_pixel_mask) {
+				// We ended up in the middle of a byte, save it
+				*line = pixel;
 			}
 		}
 	}
