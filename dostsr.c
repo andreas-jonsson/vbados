@@ -17,6 +17,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#include <stdlib.h>
+#include <string.h>
 #include <i86.h>
 
 #include "dlog.h"
@@ -186,7 +188,7 @@ static void hide_graphic_cursor(void)
 			                                                 plane, y);
 
 			// Restore this scaline from cursor_prev
-			nfmemcpy(line, prev, cursor_bytes_per_line);
+			_fmemcpy(line, prev, cursor_bytes_per_line);
 		}
 	}
 
@@ -230,7 +232,7 @@ static void show_graphic_cursor(void)
 			unsigned x;
 
 			// First, backup this scanline to prev before any changes
-			fnmemcpy(prev, line, cursor_bytes_per_line);
+			_fmemcpy(prev, line, cursor_bytes_per_line);
 
 			// when start.x is not pixel aligned,
 			// scaline points the previous multiple of pixels_per_byte;
@@ -380,7 +382,7 @@ static void load_cursor(void)
 		uint8_t  *output = req->pointerData;
 		unsigned int y, x;
 
-		bzero(req, sizeof(VMMDevReqMousePointer));
+		memset(req, 0, sizeof(VMMDevReqMousePointer));
 
 		req->header.size = vbox_req_mouse_pointer_size(width, height);
 		req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
@@ -555,7 +557,7 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 	} else if (x || y) {
 		// Relative movement: x,y are in mickeys
 		uint16_t ticks = bda_get_tick_count_lo();
-		unsigned ax = ABS(x), ay = ABS(y);
+		unsigned ax = abs(x), ay = abs(y);
 
 		events |= INT33_EVENT_MASK_MOVEMENT;
 
@@ -733,7 +735,7 @@ static void reset_mouse_settings()
 	data.cursor_text_xor_mask = 0x7700U;
 	data.cursor_hotspot.x = 0;
 	data.cursor_hotspot.y = 0;
-	nnmemcpy(data.cursor_graphic, default_cursor_graphic, sizeof(data.cursor_graphic));
+	memcpy(data.cursor_graphic, default_cursor_graphic, sizeof(data.cursor_graphic));
 
 	refresh_cursor(); // This will hide the cursor and update data.cursor_visible
 }
@@ -764,7 +766,7 @@ static void reset_mouse_state()
 	data.cursor_pos.x = 0;
 	data.cursor_pos.y = 0;
 	data.cursor_prev_char = 0;
-	bzero(data.cursor_prev_graphic, sizeof(data.cursor_prev_graphic));
+	memset(data.cursor_prev_graphic, 0, sizeof(data.cursor_prev_graphic));
 }
 
 static void return_clear_wheel_counter(union INTPACK __far *r)
@@ -884,7 +886,7 @@ static void int33_handler(union INTPACK r)
 		hide_cursor();
 		data.cursor_hotspot.x = r.x.bx;
 		data.cursor_hotspot.y = r.x.cx;
-		fnmemcpy(data.cursor_graphic, MK_FP(r.x.es, r.x.dx), sizeof(data.cursor_graphic));
+		_fmemcpy(data.cursor_graphic, MK_FP(r.x.es, r.x.dx), sizeof(data.cursor_graphic));
 		load_cursor();
 		refresh_cursor();
 		break;
@@ -944,11 +946,11 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_SAVE_MOUSE_STATUS:
 		dlog_puts("Mouse save status");
-		nfmemcpy(MK_FP(r.x.es, r.x.dx), &data, sizeof(TSRDATA));
+		_fmemcpy(MK_FP(r.x.es, r.x.dx), &data, sizeof(TSRDATA));
 		break;
 	case INT33_LOAD_MOUSE_STATUS:
 		dlog_puts("Mouse load status");
-		fnmemcpy(&data, MK_FP(r.x.es, r.x.dx), sizeof(TSRDATA));
+		_fmemcpy(&data, MK_FP(r.x.es, r.x.dx), sizeof(TSRDATA));
 		break;
 	case INT33_SET_MOUSE_SENSITIVITY:
 		dlog_print("Mouse set speed x=");

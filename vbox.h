@@ -22,6 +22,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "dlog.h"
 #include "vds.h"
@@ -69,7 +70,7 @@ static int vbox_report_guest_info(LPVBOXCOMM vb, uint32_t osType)
 {
 	VMMDevReportGuestInfo __far *req = (void __far *) vb->buf;
 
-	bzero(req, sizeof(VMMDevReportGuestInfo));
+	_fmemset(req, 0, sizeof(VMMDevReportGuestInfo));
 
 	req->header.size = sizeof(VMMDevReportGuestInfo);
 	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
@@ -88,7 +89,7 @@ static int vbox_set_mouse(LPVBOXCOMM vb, bool absolute, bool pointer)
 {
 	VMMDevReqMouseStatus __far *req = (void __far *) vb->buf;
 
-	bzero(req, sizeof(VMMDevReqMouseStatus));
+	_fmemset(req, 0, sizeof(VMMDevReqMouseStatus));
 
 	req->header.size = sizeof(VMMDevReqMouseStatus);
 	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
@@ -110,7 +111,7 @@ static int vbox_get_mouse(LPVBOXCOMM vb, bool __far *abs,
 {
 	VMMDevReqMouseStatus __far *req = (void __far *) vb->buf;
 
-	bzero(req, sizeof(VMMDevReqMouseStatus));
+	_fmemset(req, 0, sizeof(VMMDevReqMouseStatus));
 
 	req->header.size = sizeof(VMMDevReqMouseStatus);
 	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
@@ -131,7 +132,7 @@ static int vbox_set_pointer_visible(LPVBOXCOMM vb, bool visible)
 {
 	VMMDevReqMousePointer __far *req = (void __far *) vb->buf;
 
-	bzero(req, sizeof(VMMDevReqMousePointer));
+	_fmemset(req, 0, sizeof(VMMDevReqMousePointer));
 
 	req->header.size = sizeof(VMMDevReqMousePointer);
 	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;

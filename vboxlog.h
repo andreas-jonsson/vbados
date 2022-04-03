@@ -1,12 +1,12 @@
 #ifndef VBOXDLOG_H
 #define VBOXDLOG_H
 
+#include <conio.h>
+
 /** Logs a single character to the VBox debug message port. */
-static void vbox_log_putc(char c);
-#pragma aux vbox_log_putc = \
-	"mov dx, 0x504" \
-	"out dx, al" \
-	__parm [al] \
-	__modify [dx]
+static inline void vbox_log_putc(char c)
+{
+	outp(0x504, c);
+}
 
 #endif // VBOXDLOG_H

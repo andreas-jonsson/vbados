@@ -2,15 +2,16 @@
 # Assuming you have sourced `owsetenv` beforehand.
 # 
 dosobjs = dostsr.obj dosmain.obj vbox.obj
-doscflags = -bt=dos -ms -6 -os -w3
+doscflags = -bt=dos -ms -6 -os -oi -w3
 # -ms to use small memory model (though sometimes ss != ds...)
 # -os to optimize for size
+# -oi to put intrinsics online (don't use them much)
 dostsrcflags = -zu -s -g=RES_GROUP -nd=RES -nt=RES_TEXT -nc=RES_CODE
 # -s to disable stack checks, since it inserts calls to the runtime from the TSR part
 # -zu since ss != ds on the TSR
 
 w16objs = w16mouse.obj
-w16cflags = -bt=windows -bd -mc -zu -s -6 -w3
+w16cflags = -bt=windows -bd -mc -zu -s -6 -oi -w3
 # -bd to build DLL
 # -mc to use compact memory model (far data pointers, ss != ds always)
 # -zu for DLL calling convention (ss != ds)
@@ -46,6 +47,6 @@ vbmouse.flp:
 	mformat -C -f 1440 -v VBMOUSE -i $^@ ::
 
 # Build a floppy image containing the driver
-flp: vbmouse.flp vbmouse.exe vbmouse.drv .SYMBOLIC
-	mcopy -i vbmouse.flp -o vbmouse.exe vbmouse.drv ::
+flp: vbmouse.flp vbmouse.exe vbmouse.drv oemsetup.inf .SYMBOLIC
+	mcopy -i vbmouse.flp -o vbmouse.exe vbmouse.drv oemsetup.inf ::
 

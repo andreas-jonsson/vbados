@@ -124,7 +124,8 @@ BOOL FAR PASCAL LibMain(HINSTANCE hInstance, WORD wDataSegment,
 	uint16_t version = int33_get_driver_version();
 
 	// For now we just check for the presence of any int33 driver version
-	if (version <= 0) {
+	if (version == 0) {
+		// No one responded to our request, we can assume no driver
 		// This will cause a "can't load .drv" message from Windows
 		return 0;
 	}
@@ -147,9 +148,9 @@ WORD FAR PASCAL Inquire(LPMOUSEINFO lpMouseInfo)
 VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 {
 	// Store the windows-given callback
-	cli(); // Write to far pointer may not be atomic, and we could be interrupted mid-write
+	_disable(); // Write to far pointer may not be atomic, and we could be interrupted mid-write
 	eventproc = lpEventProc;
-	sti();
+	_enable();
 
 	if (!enabled) {
 		int33_reset();
