@@ -1,40 +1,52 @@
-This is a mouse driver for Windows 3.x with VirtualBox mouse integration support.
 
-I have tested it with Windows 3.0 in real and 386 enhanced modes,  Windows 3.11 in 386 enhanced mode
-with paging on, as well as Windows 95 (Windows 9x can use 16-bit mouse drivers).
+This is a DOS mouse driver as a TSR written in C and compilable using OpenWatcom C.
+It is not going to stand out in either compatibility, performance, or memory usage;
+the main goal is to have a driver that is at least a bit easier to hack on, for experimentation.
+
+Like any other DOS mouse driver, it partially supports the MS Mouse API (int 33h), but has
+some additional features:
+
+* Implements the hooks required for DOS boxes inside Windows. 
+  Multiple DOS boxes can use this driver simultaneously, 
+  and clicks in the DOS window will be passed through to the correct running DOS application.
+
+* PS/2 Wheel and 3 button mouse support, using the API from CuteMouse.
+
+* Integration with VirtualBox: in many DOS programs, the mouse can be used without requiring capture,
+  and will seamlessly integrate with the mouse cursor in the host.
+  The mouse cursor will be rendered by the host rather than the guest OS, appearing much more responsive.
+  Programs/games that utilize relative mouse motion information will be "jumpy" when this is enabled,
+  so this integration can be disabled (either from the VirtualBox menu or by using `vbmouse integ off` after loading
+  the driver).
+
+* A companion driver for Windows 3.x that uses this driver (via int33h) instead of accessing the mouse directly,
+  so that Windows 3.x gains some of the features of this driver (like mouse integration in VirtualBox).
+  Wheel doesn't work in Windows 3.x right now.
+
+Note that it does not support serial mice or anything other than PS/2.
 
 # Install
 
-Download [vbmouse.flp](https://depot.javispedro.com/vbox/vbmouse1.flp)
-(a floppy image containing vbmouse.drv and oemsetup.inf) and insert it into your virtual machine.
-
-In the Windows Setup program (accessible either via SETUP.EXE on an installed Windows or via
-the corresponding icon in Program Manager), go to
-Options → Change system configuration → Mouse → Select "Other mouse..." → Search in "A:"
-→ "VirtualBox PS/2 Mouse".
-Select the "VirtualBox PS/2 Mouse" in the Mouse section again.
-
-Alternatively, you can copy vbmouse.drv to your WINDOWS\SYSTEM directory and edit WINDOWS\SYSTEM.INI 's mouse.drv line to point to it, e.g.
-
-    [boot]
-    mouse.drv = vbmouse.drv
-
-This later option also works with Windows 9x.
+Just run vbmouse. 
 
 # Building
 
 This requires [OpenWatcom 2.0](http://open-watcom.github.io/), albeit it may work with an older version,
 and was only tested on a Linux host.
 
-The included makefile is a wmake makefile. To build it just enter the OpenWatcom environment and run `wmake vbmouse.drv`.
-`wmake flp` may be used to build a floppy image containg oemsetup.inf and vbmouse.drv for easier installation.
+The included makefile is a wmake makefile. To build it just enter the OpenWatcom environment and run `wmake flp`.
+This will create a floppy image containing vbmouse.exe plus the Windows 3.x driver (oemsetup.inf and vbmouse.drv).
 
 # Design
 
 This is at its core a driver for a plain PS/2 mouse driver, using the PS/2 BIOS.
 If running outside VirtualBox, in fact it will behave like a PS/2 mouse driver.
-However, it removes a lot of checks for older platforms and is mostly written in C rather than assembly,
-so hopefully it is easier to understand than the Windows sample drivers.
+
+The .exe file is comprised of two segments, the first one contains the resident part,
+while the second one contains the command line interface. This second segment
+is dropped once the driver goes resident. 
+
+### VirtualBox communication
 
 The VirtualBox guest integrations present itself as a PCI device to the guest.
 Thanks to the BIOS, the device is already pre-configured.
@@ -45,21 +57,16 @@ The host will write back the response in the same buffer.
 Further details are available in [OSDev](https://wiki.osdev.org/VirtualBox_Guest_Additions).
 
 The only challenge here is getting the physical address (what the VirtualBox PCI device expects)
-corresponding to a logical address (segment:offset) as seen from inside Windows.
-In real mode Windows, the segment can be converted to a physical address without difficulty.
-In 386 enhanced mode, the segment is actually a selector, but turns out one can obtain the base
-of a selector with the `GetSelectorBase()` WINAPI.
-However, if paging is enabled, that only computes the linear address, which is still not the same
-as the physical address.
-In this case, the [Virtual DMA services](https://en.wikipedia.org/wiki/Virtual_DMA_Services) are used
-to obtain the physical address, even though we are not doing DMA.
+corresponding to a logical address (segment:offset).
+While running under real mode DOS, the segment can be converted to a physical address without difficulty.
+However, when using DOS extenders, EMM386, Windows in 386 mode, etc. DOS is actually run
+in virtual 8086 mode, and the logical address may not correspond to a physical address.
+However, most DOS extenders still map conventional memory 1:1, and for those who don't,
+the driver uses the [Virtual DMA services](https://en.wikipedia.org/wiki/Virtual_DMA_Services)
+to obtain the physical address.
 
 When VirtualBox is told that the guest wants absolute mouse information, VirtualBox will stop sending
 relative mouse information via the PS/2 mouse. However, the PS/2 controller will still send interrupts
 whenever mouse motion happens, and it will still report mouse button presses. In fact, the only way
-to obtain mouse button presses is still through the PS/2 controller.
-Thus, the only difference between this driver and a standard PS/2 mouse driver is that,
-when an interrupt from the mouse comes in, we won't report the relative mouse motion to Windows.
-Rather, we call into VirtualBox (right from the PS/2 BIOS interrupt handler)
-to obtain the absolution mouse position, and report that to Windows.
+to obtain mouse button presses (and wheel movement) is still through the PS/2 controller.
 
