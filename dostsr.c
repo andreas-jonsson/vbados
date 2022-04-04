@@ -179,7 +179,7 @@ static void hide_graphic_cursor(void)
 	                                                   start.x, size.x);
 
 	for (plane = 0; plane < info->num_planes; plane++) {
-		if (info->num_planes) vga_select_plane(plane);
+		if (info->num_planes > 1) vga_select_plane(plane);
 
 		for (y = 0; y < size.y; y++) {
 			uint8_t __far *line = get_video_scanline(info, start.y + y)
@@ -216,7 +216,7 @@ static void show_graphic_cursor(void)
 	                                                   start.x, size.x);
 
 	for (plane = 0; plane < info->num_planes; plane++) {
-		if (info->num_planes) vga_select_plane(plane);
+		if (info->num_planes > 1) vga_select_plane(plane);
 
 		for (y = 0; y < size.y; y++) {
 			uint8_t __far *line = get_video_scanline(info, start.y + y)
@@ -227,46 +227,68 @@ static void show_graphic_cursor(void)
 			                           << offset.x;
 			uint16_t cursor_xor_mask = get_graphic_cursor_xor_mask_line(offset.y + y)
 			                           << offset.x;
-			uint8_t pixel_mask = msb_pixel_mask;
-			uint8_t pixel = *line;
 			unsigned x;
 
 			// First, backup this scanline to prev before any changes
 			_fmemcpy(prev, line, cursor_bytes_per_line);
 
-			// when start.x is not pixel aligned,
-			// scaline points the previous multiple of pixels_per_byte;
-			// and the initial pixel will not be at the MSB of it.
-			// advance the pixel_mask accordingly
 			if (info->bits_per_pixel < 8) {
+				uint8_t pixel_mask = msb_pixel_mask;
+				uint8_t pixel = *line;
+
+				// when start.x is not pixel aligned,
+				// scaline points the previous multiple of pixels_per_byte;
+				// and the initial pixel will not be at the MSB of it.
+				// advance the pixel_mask accordingly
 				pixel_mask >>= (start.x * info->bits_per_pixel) % 8;
-			}
 
-			for (x = 0; x < size.x; x++) {
-				if (!(cursor_and_mask & MSB_MASK)) {
-					pixel &= ~pixel_mask;
+				for (x = 0; x < size.x; x++) {
+					// The MSBs of each mask correspond to the current pixel
+					if (!(cursor_and_mask & MSB_MASK)) {
+						pixel &= ~pixel_mask;
+					}
+					if (cursor_xor_mask & MSB_MASK) {
+						pixel ^= pixel_mask;
+					}
+
+					// Advance to the next pixel
+					pixel_mask >>= info->bits_per_pixel;
+					if (!pixel_mask) {
+						// Time to advance to the next byte
+						*line = pixel; // Save current byte first
+						pixel = *(++line);
+						pixel_mask = msb_pixel_mask;
+					}
+
+					// Advance to the next bit in the cursor mask
+					cursor_and_mask <<= 1;
+					cursor_xor_mask <<= 1;
 				}
-				if (cursor_xor_mask & MSB_MASK) {
-					pixel ^= pixel_mask;
+
+				if (pixel_mask != msb_pixel_mask) {
+					// We ended up in the middle of a byte, save it
+					*line = pixel;
 				}
+			} else if (info->bits_per_pixel == 8) {
+				// Simplified version for byte-aligned pixels
+				for (x = 0; x < size.x; x++) {
+					uint8_t pixel = 0;
 
-				// Advance to the next pixel
-				pixel_mask >>= info->bits_per_pixel;
-				if (!pixel_mask) {
-					// Time to advance to the next byte
-					*line = pixel; // Save current byte first
-					pixel = *(++line);
-					pixel_mask = msb_pixel_mask;
+					if (cursor_and_mask & MSB_MASK) {
+						pixel = *line;
+					}
+					if (cursor_xor_mask & MSB_MASK) {
+						pixel ^= 0x0F; // Use 0x0F as "white pixel"
+					}
+
+					// Advance to the next pixel
+					*line = pixel;
+					++line;
+
+					// Advance to the next bit in the cursor mask
+					cursor_and_mask <<= 1;
+					cursor_xor_mask <<= 1;
 				}
-
-				// Advance to the next bit in the cursor mask
-				cursor_and_mask <<= 1;
-				cursor_xor_mask <<= 1;
-			}
-
-			if (pixel_mask != msb_pixel_mask) {
-				// We ended up in the middle of a byte, save it
-				*line = pixel;
 			}
 		}
 	}
@@ -288,7 +310,7 @@ static void refresh_cursor(void)
 #endif
 
 #if USE_VIRTUALBOX
-	if (data.vbwantcursor) {
+	if (data.vbavail && data.vbwantcursor) {
 		// We want to use the VirtualBox host cursor.
 		// See if we have to update its visibility.
 		int err = 0;
@@ -298,7 +320,7 @@ static void refresh_cursor(void)
 				data.cursor_visible = should_show;
 			}
 		}
-		if (err == 0 & data.vbhaveabs) {
+		if (err == 0 && data.vbhaveabs) {
 			// No need to refresh the cursor; VirtualBox is already showing it for us.
 			return;
 		}
@@ -355,7 +377,7 @@ static void refresh_cursor(void)
 static void hide_cursor(void)
 {
 #if USE_VIRTUALBOX
-	if (data.vbwantcursor) {
+	if (data.vbavail && data.vbwantcursor) {
 		vbox_set_pointer_visible(&data.vb, false);
 		if (data.vbhaveabs) {
 			data.cursor_visible = false;
@@ -377,7 +399,7 @@ static void hide_cursor(void)
 static void load_cursor(void)
 {
 #if USE_VIRTUALBOX
-	if (data.vbwantcursor) {
+	if (data.vbavail && data.vbwantcursor) {
 		VMMDevReqMousePointer *req = (VMMDevReqMousePointer *) data.vb.buf;
 		const unsigned width = GRAPHIC_CURSOR_WIDTH, height = GRAPHIC_CURSOR_HEIGHT;
 		uint8_t  *output = req->pointerData;
@@ -433,13 +455,12 @@ static void load_cursor(void)
 
 		if (req->header.rc != 0) {
 			dlog_puts("Could not send cursor to VirtualBox");
+			return;
 		}
 
 		// After we send this message, it looks like VirtualBox shows the cursor
 		// even if we didn't actually want it to be visible at this point.
-		// Mark it as visible so that refresh_cursor() will rehide it if necessary.
-		data.cursor_visible = true;
-		refresh_cursor();
+		vbox_set_pointer_visible(&data.vb, false);
 	}
 #endif
 }
@@ -1048,6 +1069,8 @@ static void windows_mouse_handler(int action, int x, int y, int buttons, int eve
 {
 	switch (action) {
 	case VMD_ACTION_MOUSE_EVENT:
+		(void) events;
+		// Forward event to our internal system
 		handle_mouse_event(buttons, true, x, y, 0);
 		break;
 	case VMD_ACTION_HIDE_CURSOR:

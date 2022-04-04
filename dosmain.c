@@ -29,17 +29,22 @@
 #include "vbox.h"
 #include "dostsr.h"
 
+static void detect_wheel(LPTSRDATA data)
+{
+	// Do a quick check for a mouse wheel here.
+	// The TSR will do its own check when it is reset anyway
+	if (data->haswheel = ps2m_detect_wheel()) {
+		printf("Wheel mouse found and enabled\n");
+	}
+}
+
 static int set_wheel(LPTSRDATA data, bool enable)
 {
 	printf("Setting wheel support to %s\n", enable ? "enabled" : "disabled");
 	data->usewheel = enable;
 
 	if (data->usewheel) {
-		// Do a quick check for a mouse wheel here.
-		// The TSR will do its own check when it is reset anyway
-		if (data->haswheel = ps2m_detect_wheel()) {
-			printf("Wheel mouse found and enabled\n");
-		}
+		detect_wheel(data);
 	} else {
 		data->haswheel = false;
 	}
@@ -77,6 +82,7 @@ static int set_integration(LPTSRDATA data, bool enable)
 
 		printf("VirtualBox integration enabled\n");
 		data->vbavail = true;
+		data->vbhaveabs = true;
 	} else {
 		if (data->vbavail) {
 			vbox_set_mouse(&data->vb, false, false);
@@ -85,6 +91,7 @@ static int set_integration(LPTSRDATA data, bool enable)
 
 			printf("Disabled VirtualBox integration\n");
 			data->vbavail = false;
+			data->vbhaveabs = false;
 		} else {
 			printf("VirtualBox integration already disabled or not available\n");
 		}
@@ -118,7 +125,8 @@ static int configure_driver(LPTSRDATA data)
 	}
 
 	// Let's utilize the wheel by default
-	set_wheel(data, true);
+	data->usewheel = true;
+	detect_wheel(data);
 
 #if USE_VIRTUALBOX
 	// Assume initially that we want integration and host cursor
