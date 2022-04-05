@@ -80,12 +80,8 @@ enum ps2m_sample_rate {
 	PS2M_SAMPLE_RATE_200 = 6
 };
 
-#pragma aux PS2_CB far loadds parm reverse caller []
-// TODO: ax and es look not be preserved with this. VBox BIOS already preserves them though, as well as 32-bit registers
-
-/** Invoked by the BIOS when there is a mouse event.
- *  @param status combination of PS2M_STATUS_* flags */
-typedef void (__far * LPFN_PS2CALLBACK)(uint8_t status, uint8_t x, uint8_t y, uint8_t z);
+/** Invoked by the BIOS when there is a mouse event. */
+typedef void (__far * LPFN_PS2CALLBACK)();
 
 static ps2m_err ps2m_init(uint8_t packet_size);
 #pragma aux ps2m_init = \

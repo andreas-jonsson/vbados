@@ -2,7 +2,7 @@
 # Assuming you have sourced `owsetenv` beforehand.
 # 
 dosobjs = dostsr.obj dosmain.obj vbox.obj
-doscflags = -bt=dos -ms -6 -os -oi -w3
+doscflags = -bt=dos -ms -6 -os -oi -w3 -wcd=202
 # -ms to use small memory model (though sometimes ss != ds...)
 # -os to optimize for size
 # -oi to put intrinsics online (don't use them much)
@@ -11,7 +11,7 @@ dostsrcflags = -zu -s -g=RES_GROUP -nd=RES -nt=RES_TEXT -nc=RES_CODE
 # -zu since ss != ds on the TSR
 
 w16objs = w16mouse.obj
-w16cflags = -bt=windows -bd -mc -zu -s -6 -oi -w3
+w16cflags = -bt=windows -bd -mc -zu -s -6 -oi -w3 -wcd=202
 # -bd to build DLL
 # -mc to use compact memory model (far data pointers, ss != ds always)
 # -zu for DLL calling convention (ss != ds)

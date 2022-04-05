@@ -20,16 +20,67 @@
 #ifndef DLOG_H
 #define DLOG_H
 
-#define ENABLE_DLOG 1
+#include <conio.h>
+
+// Customizable defines
+/** If 0, these routines become nops */
+#define ENABLE_DLOG 0
+/** 1 means target serial port, 0 means target IO port. */
+#define DLOG_TARGET_SERIAL 1
+/** IO port to target.
+ *  VirtualBox uses 0x504, Bochs, DOSBox and descendants use 0xE9.
+ *  When using DLOG_TARGET_SERIAL, use desired UART IO base port. (e.g. COM1 = 0x3F8). */
+#define DLOG_TARGET_PORT 0x3f8
+
+// End of customizable defines
 
 #if ENABLE_DLOG
 
-#if 1
-#include "vboxlog.h"
-#define dlog_putc vbox_log_putc
-#endif
+/** Initializes the debug log port. */
+static void dlog_init();
 
-#define dlog_endline() dlog_putc('\n')
+/** Logs a single character to the debug message IO port. */
+static inline void dlog_putc(char c);
+
+#if DLOG_TARGET_SERIAL
+
+static void dlog_init()
+{
+	// Comes straight from https://wiki.osdev.org/Serial_Ports#Initialization
+	outp(DLOG_TARGET_PORT + 1, 0x00);    // Disable all interrupts
+	outp(DLOG_TARGET_PORT + 3, 0x80);    // Enable DLAB (set baud rate divisor)
+	outp(DLOG_TARGET_PORT + 0, 0x03);    // Set divisor to 3 (lo byte) 38400 baud
+	outp(DLOG_TARGET_PORT + 1, 0x00);    //                  (hi byte)
+	outp(DLOG_TARGET_PORT + 3, 0x03);    // 8 bits, no parity, one stop bit
+	outp(DLOG_TARGET_PORT + 2, 0xC7);    // Enable FIFO, clear them, with 14-byte threshold
+	outp(DLOG_TARGET_PORT + 4, 0x03);    // RTS/DSR set, IRQs disabled
+}
+
+static inline void dlog_putc(char c)
+{
+	while (!(inp(DLOG_TARGET_PORT + 5) & 0x20));
+	outp(DLOG_TARGET_PORT, c);
+}
+
+#else /* DLOG_TARGET_SERIAL */
+
+static void dlog_init()
+{
+}
+
+static inline void dlog_putc(char c)
+{
+	outp(DLOG_TARGET_PORT, c);
+}
+
+
+
+#endif /* DLOG_TARGET_SERIAL */
+
+static void dlog_endline(void)
+{
+	dlog_putc('\n');
+}
 
 /** Print string to log */
 static void dlog_print(const char *s)
@@ -105,8 +156,9 @@ static void dlog_printd(int num)
 	dlog_printdb(num, 10);
 }
 
-#else
+#else /* ENABLE_DLOG */
 
+#define dlog_init()
 #define dlog_putc(c)
 #define dlog_endline()
 #define dlog_print(s)

@@ -20,6 +20,8 @@
 #ifndef VBOX_H
 #define VBOX_H
 
+#pragma off (unreferenced)
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -154,5 +156,7 @@ static inline unsigned vbox_req_mouse_pointer_size(unsigned width, unsigned heig
 	const unsigned data_size = and_mask_size + xor_mask_size;
 	return MAX(sizeof(VMMDevReqMousePointer), 24 + 20 + data_size);
 }
+
+#pragma pop (unreferenced)
 
 #endif

@@ -26,6 +26,8 @@
 #include "int10vga.h"
 #include "int2fwin.h"
 #include "int33.h"
+#include "vbox.h"
+#include "vmware.h"
 #include "dostsr.h"
 
 #define MSB_MASK 0x8000U
@@ -303,7 +305,7 @@ static void refresh_cursor(void)
 	bool should_show = data.visible_count >= 0;
 	bool pos_changed, needs_refresh;
 
-#if USE_INT2F
+#if USE_WIN386
 	// Windows 386 is already rendering the cursor for us.
 	// Hide our own.
 	if (data.w386cursor) should_show = false;
@@ -646,58 +648,180 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 }
 
 /** PS/2 BIOS calls this routine to notify mouse events. */
-static void __far ps2_mouse_callback(uint8_t status, uint8_t x, uint8_t y, uint8_t z)
+static void __far ps2_mouse_handler(uint16_t word1, uint16_t word2, uint16_t word3, uint16_t word4)
 {
-#pragma aux (PS2_CB) ps2_mouse_callback
+#pragma aux ps2_mouse_handler "*" parm caller [ax] [bx] [cx] [dx] modify [ax bx cx dx si di es fs gs]
 
-	int sx =   status & PS2M_STATUS_X_NEG ? 0xFF00 | x : x;
-	int sy = -(status & PS2M_STATUS_Y_NEG ? 0xFF00 | y : y);
-	int sz = z;
+	unsigned status;
+	int x, y, z;
 	bool abs = false;
 
 #if TRACE_EVENTS
-	dlog_print("ps2 callback status=");
-	dlog_printx(status);
-	dlog_print(" sx=");
-	dlog_printd(sx);
-	dlog_print(" sy=");
-	dlog_printd(sy);
-	dlog_print(" sz=");
-	dlog_printd(z);
+	dlog_print("ps2 callback ");
+	dlog_printx(word1);
+	dlog_putc(' ');
+	dlog_printx(word2);
+	dlog_putc(' ');
+	dlog_printx(word3);
+	dlog_putc(' ');
+	dlog_printx(word4);
 	dlog_endline();
-#endif
+#endif /* TRACE_EVENTS */
+
+	// Decode the PS2 event args
+	// In a normal IBM PS/2 BIOS (incl. VirtualBox/Bochs/qemu/SeaBIOS):
+	//  word1 low byte = status (following PS2M_STATUS_*)
+	//  word2 low byte = x
+	//  word3 low byte = y
+	//  word4 = always zero
+	// In a PS/2 BIOS with wheel support (incl. VMware/DOSBox-X):
+	// taken from CuteMouse/KoKo:
+	//  word1 high byte = x
+	//  word1 low byte = status
+	//  word2 low byte = y
+	//  word3 low byte = z
+	//  word4 = always zero
+	// VirtualBox/Bochs/qemu/SeaBIOS behave like a normal one,
+	// but they also store the raw contents of all mouse packets in the EBDA (starting 0x28 = packet 0).
+	// Other BIOSes don't do that so it is not a reliable option either.
+	// So, how to detect which BIOS we have?
+	// For now we are always assuming "normal" PS/2 BIOS.
+	// But with VirtualBox integration on we'll get the wheel packet from the EBDA,
+	// and with VMWare integration on we'll get it from the VMware protocol.
+	status = (uint8_t) word1;
+	x = (uint8_t) word2;
+	y = (uint8_t) word3;
+	z = 0;
+	(void) word4;
+
+	// Sign-extend X, Y as per the status byte
+	x =   status & PS2M_STATUS_X_NEG ? 0xFF00 | x : x;
+	y = -(status & PS2M_STATUS_Y_NEG ? 0xFF00 | y : y);
 
 #if USE_VIRTUALBOX
 	if (data.vbavail) {
 		uint16_t vbx, vby;
 		if ((vbox_get_mouse(&data.vb, &abs, &vbx, &vby) == 0) && abs) {
-			sx = scaleu(vbx, 0xFFFFU, MAX(data.max.x, data.screen_max.x));
-			sy = scaleu(vby, 0xFFFFU, MAX(data.max.y, data.screen_max.y));
+			// VirtualBox gives unsigned coordinates from 0...0xFFFFU,
+			// scale to 0..screen_size (in pixels).
+			// If the user is using a window larger than the screen, use it.
+			x = scaleu(vbx, 0xFFFFU, MAX(data.max.x, data.screen_max.x));
+			y = scaleu(vby, 0xFFFFU, MAX(data.max.y, data.screen_max.y));
 			data.vbhaveabs = true;
 		} else {
 			// VirtualBox does not support absolute coordinates,
 			// or user has disabled them.
 			data.vbhaveabs = false;
+			// Rely on PS/2 relative coordinates.
+		}
+
+		// VirtualBox/Bochs BIOS does not pass wheel data to the callback,
+		// so we will fetch it directly from the BIOS data segment.
+		if (data.haswheel) {
+			int8_t __far * mouse_packet = MK_FP(bda_get_ebda_segment(), 0x28);
+			z = mouse_packet[3];
 		}
 	}
+#endif /* USE_VIRTUALBOX */
+
+#if USE_VMWARE
+	if (data.vmwavail) {
+		uint32_t vmwstatus = vmware_abspointer_status();
+		uint16_t data_avail = vmwstatus & VMWARE_ABSPOINTER_STATUS_MASK_DATA;
+
+#if TRACE_EVENTS
+		dlog_print("vmware status=0x");
+		dlog_printx(vmwstatus >> 16);
+		dlog_print(" ");
+		dlog_printx(vmwstatus & 0xFFFF);
+		dlog_endline();
 #endif
 
-	// VirtualBox/Bochs BIOS does not pass wheel data to the callback,
-	// so we will fetch it directly from the BIOS data segment.
-	if (data.haswheel && !sz) {
-		int8_t __far * mouse_packet = MK_FP(bda_get_ebda_segment(), 0x28);
-		sz = mouse_packet[3];
+		if (data_avail >= VMWARE_ABSPOINTER_DATA_PACKET_SIZE) {
+			struct vmware_abspointer_data vmw;
+			vmware_abspointer_data(VMWARE_ABSPOINTER_DATA_PACKET_SIZE, &vmw);
+
+#if TRACE_EVENTS
+			dlog_print("vmware pstatus=0x");
+			dlog_printx(status);
+			dlog_print(" x=0x");
+			dlog_printx(vmw.x);
+			dlog_print(" z=");
+			dlog_printd((int8_t) (uint8_t) vmw.z);
+			dlog_endline();
+#endif
+
+			if (vmw.status & VMWARE_ABSPOINTER_STATUS_RELATIVE) {
+				x = (int16_t) vmw.x;
+				y = (int16_t) vmw.y;
+				z = (int8_t) (uint8_t) vmw.z;
+			} else {
+				abs = true;
+				x = scaleu(vmw.x & 0xFFFFU, 0xFFFFU,
+				            MAX(data.max.x, data.screen_max.x));
+				y = scaleu(vmw.y & 0xFFFFU, 0xFFFFU,
+				            MAX(data.max.y, data.screen_max.y));
+				z = (int8_t) (uint8_t) vmw.z;
+			}
+
+			if (vmw.status & VMWARE_ABSPOINTER_STATUS_BUTTON_LEFT) {
+				status |= PS2M_STATUS_BUTTON_1;
+			}
+			if (vmw.status & VMWARE_ABSPOINTER_STATUS_BUTTON_RIGHT) {
+				status |= PS2M_STATUS_BUTTON_2;
+			}
+			if (vmw.status & VMWARE_ABSPOINTER_STATUS_BUTTON_MIDDLE) {
+				status |= PS2M_STATUS_BUTTON_3;
+			}
+		} else {
+			return; // Ignore the PS/2 packet otherwise, it is likely garbage
+		}
 	}
+#endif /* USE_VMWARE */
 
 	handle_mouse_event(status & (PS2M_STATUS_BUTTON_1 | PS2M_STATUS_BUTTON_2 | PS2M_STATUS_BUTTON_3),
-	                   abs, sx, sy, sz);
+	                   abs, x, y, z);
 }
 
-#if USE_VIRTUALBOX
-static void enable_vbox_absolute(bool enable)
+void __declspec(naked) __far ps2_mouse_callback()
 {
-	data.vbhaveabs = false;
+	__asm {
+		pusha
+		push ds
+		push es
+		push fs
+		push gs
 
+		; 8 + 4 saved registers, 24 bytes
+		; plus 4 bytes for retf address
+		; = 28 bytes of stack before callback args
+
+		mov bp, sp
+		push cs
+		pop ds
+
+		mov	ax,[bp+28+6]	; Status
+		mov	bx,[bp+28+4]	; X
+		mov	cx,[bp+28+2]	; Y
+		mov	dx,[bp+28+0]	; Z
+
+		call ps2_mouse_handler
+
+		pop gs
+		pop fs
+		pop es
+		pop ds
+		popa
+
+		retf
+	}
+}
+
+#if USE_INTEGRATION
+static void set_absolute(bool enable)
+{
+#if USE_VIRTUALBOX
+	data.vbhaveabs = false;
 	if (data.vbavail) {
 		int err = vbox_set_mouse(&data.vb, enable, false);
 		if (enable && !err) {
@@ -707,19 +831,34 @@ static void enable_vbox_absolute(bool enable)
 			dlog_puts("VBox absolute mouse disabled");
 		}
 	}
+#endif /* USE_VIRTUALBOX */
+#if USE_VMWARE
+	if (data.vmwavail) {
+		if (enable) {
+			uint16_t data_avail;
+			// It looks like a reset of the PS/2 mouse completely disables
+			// the vmware interface, so we have to reenable it from scratch.
+			vmware_abspointer_cmd(VMWARE_ABSPOINTER_CMD_ENABLE);
+			vmware_abspointer_data_clear();
+			vmware_abspointer_cmd(VMWARE_ABSPOINTER_CMD_REQUEST_ABSOLUTE);
+
+			dlog_puts("VMware absolute mouse enabled");
+		} else {
+			vmware_abspointer_cmd(VMWARE_ABSPOINTER_CMD_REQUEST_RELATIVE);
+			vmware_abspointer_cmd(VMWARE_ABSPOINTER_CMD_DISABLE);
+
+			dlog_puts("VMware absolute mouse disabled");
+		}
+	}
+#endif /* USE_VMWARE */
 }
-#endif
+#endif /* USE_INTEGRATION */
 
 static void reset_mouse_hardware()
 {
 	ps2m_enable(false);
 
-#if USE_VIRTUALBOX
-	// By default, enable the integration
-	enable_vbox_absolute(true);
-	load_cursor();
-#endif
-
+#if USE_WHEEL
 	if (data.usewheel && ps2m_detect_wheel()) {
 		// Detect wheel also reinitializes the mouse to the proper packet size
 		data.haswheel = true;
@@ -728,12 +867,23 @@ static void reset_mouse_hardware()
 		data.haswheel = false;
 		ps2m_init(PS2M_PACKET_SIZE_PLAIN);
 	}
+#else
+	data.haswheel = false;
+	ps2m_init(PS2M_PACKET_SIZE_PLAIN);
+#endif
 
 	ps2m_set_resolution(3);     // 3 = 200 dpi, 8 counts per millimeter
 	ps2m_set_sample_rate(4);    // 4 = 80 reports per second
 	ps2m_set_scaling_factor(1); // 1 = 1:1 scaling
 
 	ps2m_set_callback(ps2_mouse_callback);
+
+#if USE_INTEGRATION
+	// By default, enable absolute mouse
+	set_absolute(true);
+	// Reload hardware cursor
+	load_cursor();
+#endif
 
 	ps2m_enable(true);
 }
@@ -813,7 +963,7 @@ static void return_clear_button_counter(union INTPACK __far *r, struct buttoncou
 
 /** Entry point for our int33 API. */
 static void int33_handler(union INTPACK r)
-#pragma aux int33_handler "*" parm caller [] modify [ax bx cx dx es]
+#pragma aux int33_handler "*" parm caller [] modify [ax bx cx dx si di es fs gs]
 {
 	switch (r.x.ax) {
 	case INT33_RESET_MOUSE:
@@ -1062,7 +1212,7 @@ void __declspec(naked) __far int33_isr(void)
 	}
 }
 
-#if USE_INT2F
+#if USE_WIN386
 /** Windows will call this function to notify events when we are inside a DOS box. */
 static void windows_mouse_handler(int action, int x, int y, int buttons, int events)
 #pragma aux windows_mouse_handler "*" parm [ax] [bx] [cx] [dx] [si] modify [ax bx cx dx es]

@@ -27,6 +27,7 @@
 #include "int33.h"
 #include "ps2.h"
 #include "vbox.h"
+#include "vmware.h"
 #include "dostsr.h"
 
 static void detect_wheel(LPTSRDATA data)
@@ -53,7 +54,7 @@ static int set_wheel(LPTSRDATA data, bool enable)
 }
 
 #if USE_VIRTUALBOX
-static int set_integration(LPTSRDATA data, bool enable)
+static int set_virtualbox_integration(LPTSRDATA data, bool enable)
 {
 	if (enable) {
 		int err;
@@ -100,38 +101,141 @@ static int set_integration(LPTSRDATA data, bool enable)
 	return 0;
 }
 
-static int set_host_cursor(LPTSRDATA data, bool enable)
+static int set_virtualbox_host_cursor(LPTSRDATA data, bool enable)
 {
-	if (data->vbavail) {
-		printf("Setting host cursor to %s\n", enable ? "enabled" : "disabled");
-		data->vbwantcursor = enable;
+	printf("Setting host cursor to %s\n", enable ? "enabled" : "disabled");
+	data->vbwantcursor = enable;
+
+	return 0;
+}
+#endif
+
+#if USE_VMWARE
+static int set_vmware_integration(LPTSRDATA data, bool enable)
+{
+	if (enable) {
+		int32_t version;
+		uint32_t status;
+		uint16_t data_avail;
+
+		data->vmwavail = false;
+
+		version = vmware_get_version();
+		if (version < 0) {
+			fprintf(stderr, "Could not detect VMware, err=%ld\n", version);
+			return -1;
+		}
+
+		printf("Found VMware protocol version %ld\n", version);
+
+		vmware_abspointer_cmd(VMWARE_ABSPOINTER_CMD_ENABLE);
+
+		status = vmware_abspointer_status();
+		if ((status & VMWARE_ABSPOINTER_STATUS_MASK_ERROR)
+		        == VMWARE_ABSPOINTER_STATUS_MASK_ERROR) {
+			fprintf(stderr, "VMware absolute pointer error, err=0x%lx\n",
+			        status & VMWARE_ABSPOINTER_STATUS_MASK_ERROR);
+			return -1;
+		}
+
+		vmware_abspointer_data_clear();
+
+		// TSR part will enable the absolute mouse when reset
+
+		printf("VMware integration enabled\n");
+		data->vmwavail = true;
 	} else {
-		printf("VirtualBox integration is not available\n");
+		if (data->vmwavail) {
+			vmware_abspointer_cmd(VMWARE_ABSPOINTER_CMD_REQUEST_RELATIVE);
+			vmware_abspointer_cmd(VMWARE_ABSPOINTER_CMD_DISABLE);
+
+			data->vmwavail = false;
+			printf("Disabled VMware integration\n");
+		} else {
+			printf("VMware integration already disabled or not available\n");
+		}
 	}
 
 	return 0;
 }
 #endif
 
+static int set_integration(LPTSRDATA data, bool enable)
+{
+	if (enable) {
+		int err = -1;
+
+#if USE_VIRTUALBOX
+		// First check if we can enable the VirtualBox integration,
+		// since it's a PCI device it's easier to check if it's not present
+		err = set_virtualbox_integration(data, true);
+		if (!err) return 0;
+#endif
+
+#if USE_VMWARE
+		// Afterwards try VMWare integration
+		err = set_vmware_integration(data, true);
+		if (!err) return 0;
+#endif
+
+		printf("Neither VirtualBox nor VMware integration available\n");
+		return err;
+	} else {
+#if USE_VIRTUALBOX
+		if (data->vbavail) {
+			set_virtualbox_integration(data, false);
+		}
+#endif
+#if USE_VMWARE
+		if (data->vmwavail) {
+			set_vmware_integration(data, false);
+		}
+#endif
+		return 0;
+	}
+}
+
+static int set_host_cursor(LPTSRDATA data, bool enable)
+{
+#if USE_VIRTUALBOX
+	if (data->vbavail) {
+		return set_virtualbox_host_cursor(data, enable);
+	}
+#endif
+	printf("VirtualBox integration not available\n");
+	return -1;
+}
+
 static int configure_driver(LPTSRDATA data)
 {
 	int err;
 
-	// First check for PS/2 mouse availability
+	// Configure the debug logging port
+	dlog_init();
+
+	// Check for PS/2 mouse BIOS availability
 	if ((err = ps2m_init(PS2M_PACKET_SIZE_PLAIN))) {
 		fprintf(stderr, "Cannot init PS/2 mouse BIOS, err=%d\n", err);
 		// Can't do anything without PS/2
 		return err;
 	}
 
+#if USE_WHEEL
 	// Let's utilize the wheel by default
 	data->usewheel = true;
 	detect_wheel(data);
+#else
+	data->usewheel = false;
+#endif
+
+#if USE_INTEGRATION
+	// Enable integration by default
+	set_integration(data, true);
+#endif
 
 #if USE_VIRTUALBOX
-	// Assume initially that we want integration and host cursor
-	 set_integration(data, true);
-	 data->vbwantcursor = data->vbavail;
+	// Assume initially that we want host cursor
+	data->vbwantcursor = data->vbavail;
 #endif
 
 	return 0;
@@ -156,7 +260,7 @@ static int install_driver(LPTSRDATA data)
 	data->prev_int33_handler = _dos_getvect(0x33);
 	_dos_setvect(0x33, int33_isr);
 
-#if USE_INT2F
+#if USE_WIN386
 	data->prev_int2f_handler = _dos_getvect(0x2f);
 	_dos_setvect(0x2f, int2f_isr);
 #endif
@@ -177,7 +281,7 @@ static bool check_if_driver_uninstallable(LPTSRDATA data)
 		return true;
 	}
 
-#if USE_INT2F
+#if USE_WIN386
 	{
 		void (__interrupt __far *cur_int2f_handler)() = _dos_getvect(0x2f);
 		void (__interrupt __far *our_int2f_handler)() = MK_FP(FP_SEG(data), FP_OFF(int2f_isr));
@@ -210,7 +314,7 @@ static int uninstall_driver(LPTSRDATA data)
 {
 	_dos_setvect(0x33, data->prev_int33_handler);
 
-#if USE_INT2F
+#if USE_WIN386
 	_dos_setvect(0x2f, data->prev_int2f_handler);
 #endif
 
@@ -243,8 +347,10 @@ static void print_help(void)
 	    "Supported actions:\n"
 	    "\tinstall           install the driver (default)\n"
 	    "\tuninstall         uninstall the driver from memory\n"
+#if USE_WHEEL
 	    "\twheel <ON|OFF>    enable/disable wheel API support\n"
-#if USE_VIRTUALBOX
+#endif
+#if USE_INTEGRATION
 	    "\tinteg <ON|OFF>    enable/disable virtualbox integration\n"
 	    "\thostcur <ON|OFF>  enable/disable mouse cursor rendering in host\n"
 #endif
@@ -301,6 +407,7 @@ int main(int argc, const char *argv[])
 			return EXIT_FAILURE;
 		}
 		return uninstall_driver(data);
+#if USE_WHEEL
 	} else if (stricmp(argv[argi], "wheel") == 0) {
 		bool enable = true;
 
@@ -312,7 +419,8 @@ int main(int argc, const char *argv[])
 		}
 
 		return set_wheel(data, enable);
-#if USE_VIRTUALBOX
+#endif
+#if USE_INTEGRATION
 	} else if (stricmp(argv[argi], "integ") == 0) {
 		bool enable = true;
 

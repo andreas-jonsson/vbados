@@ -23,13 +23,25 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "vbox.h"
 #include "int2fwin.h"
 #include "int10vga.h"
 
+// User customizable defines
+
+/** Enable the VirtualBox integration */
 #define USE_VIRTUALBOX 1
-#define USE_INT2F 1
+/** Enable the VMware integration */
+#define USE_VMWARE 1
+/** Enable the Windows 386/protected mode integration */
+#define USE_WIN386 1
+/** Enable the wheel. */
+#define USE_WHEEL 1
+/** Trace events verbosily */
 #define TRACE_EVENTS 0
+
+// End of user customizable defines
+
+#define USE_INTEGRATION (USE_VIRTUALBOX || USE_VMWARE)
 
 #define NUM_BUTTONS 3
 
@@ -40,9 +52,13 @@
 #define GRAPHIC_CURSOR_DATA_LEN (2 * GRAPHIC_CURSOR_MASK_LEN)
 
 #define VERSION_MAJOR 0
-#define VERSION_MINOR 3
+#define VERSION_MINOR 4
 #define REPORTED_VERSION_MAJOR 8
 #define REPORTED_VERSION_MINOR 0x20
+
+#if USE_VIRTUALBOX
+#include "vbox.h"
+#endif
 
 struct point {
 	int16_t x, y;
@@ -52,7 +68,7 @@ typedef struct tsrdata {
 	// TSR installation data
 	/** Previous int33 ISR, storing it for uninstall. */
 	void (__interrupt __far *prev_int33_handler)();
-#if USE_INT2F
+#if USE_WIN386
 	void (__interrupt __far *prev_int2f_handler)();
 #endif
 	/** Whether to enable & use wheel mouse. */
@@ -139,7 +155,7 @@ typedef struct tsrdata {
 	/** Events for which we should call the event handler. */
 	uint16_t event_mask;
 
-#if USE_INT2F
+#if USE_WIN386
 	/** Information that we pass to Windows 386 on startup. */
 	win386_startup_info w386_startup;
 	win386_instance_item w386_instance[2];
@@ -156,6 +172,11 @@ typedef struct tsrdata {
 	/** Have VirtualBox absolute coordinates. */
 	bool vbhaveabs : 1;
 	struct vboxcomm vb;
+#endif
+
+#if USE_VMWARE
+	/** VMware is available. */
+	bool vmwavail : 1;
 #endif
 } TSRDATA;
 
