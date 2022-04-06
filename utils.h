@@ -11,6 +11,9 @@
 static inline void breakpoint(void);
 #pragma aux breakpoint = 0xcd 0x03;
 
+static inline __segment get_cs(void);
+#pragma aux get_cs = "mov ax, cs" value [ax] modify exact [];
+
 /** Map x linearly from range [0, srcmax] to [0, dstmax].
  *  Equivalent of (x * dstmax) / srcmax but with 32-bit unsigned precision. */
 static unsigned scaleu(unsigned x, unsigned srcmax, unsigned dstmax);

@@ -25,6 +25,7 @@
 
 #include "dlog.h"
 #include "int33.h"
+#include "int21dos.h"
 #include "ps2.h"
 #include "vbox.h"
 #include "vmware.h"
@@ -241,34 +242,142 @@ static int configure_driver(LPTSRDATA data)
 	return 0;
 }
 
-static void deallocate_environment(uint16_t psp)
+/** Converts bytes to MS-DOS "paragraphs" (16 bytes), rounding up. */
+static inline unsigned get_paragraphs(unsigned bytes)
+{
+	return (bytes + 15) / 16;
+}
+
+/** Gets the size of the resident part of this program, including the PSP. */
+static inline unsigned get_resident_program_size()
+{
+	return get_resident_size() + DOS_PSP_SIZE;
+}
+
+/** Deallocates the environment block from the passed PSP segment. */
+static void deallocate_environment(__segment psp)
 {
 	// TODO : Too lazy to make PSP struct;
 	// 0x2C is offsetof the environment block field on the PSP
 	uint16_t __far *envblockP = (uint16_t __far *) MK_FP(psp, 0x2C);
-	_dos_freemem(*envblockP);
+	dos_free(*envblockP);
 	*envblockP = 0;
 }
 
-static int install_driver(LPTSRDATA data)
+/** Copies a program to another location.
+ *  @param new_seg PSP segment for the new location
+ *  @param old_seg PSP segment for the old location
+ *  @param size size of the program to copy including PSP size. */
+static void copy_program(__segment new_seg, __segment old_seg, unsigned size)
 {
-	unsigned int resident_size = get_resident_size();
+	// The MCB is always 1 segment before.
+	uint8_t __far *new_mcb = MK_FP(new_seg - 1, 0);
+	uint8_t __far *old_mcb = MK_FP(old_seg - 1, 0);
+	uint16_t __far *new_mcb_owner = (uint16_t __far *) &new_mcb[1];
+	char __far *new_mcb_owner_name = &new_mcb[8];
+	char __far *old_mcb_owner_name = &old_mcb[8];
 
-	// Not that this will do anything other than fragment memory, but why not...
+	// Copy entire resident segment including PSP
+	_fmemcpy(MK_FP(new_seg, 0), MK_FP(old_seg, 0), size);
+
+	// Make the new MCB point to itself as owner
+	*new_mcb_owner = new_seg;
+
+	// Copy the program name, too.
+	_fmemcpy(new_mcb_owner_name, old_mcb_owner_name, 8);
+}
+
+/** Allocates a UMB of the given size.
+ *  If no UMBs are available, this may still return a block in conventional memory. */
+static __segment allocate_umb(unsigned size)
+{
+	bool old_umb_link = dos_query_umb_link_state();
+	unsigned int old_strategy = dos_query_allocation_strategy();
+	__segment new_segment;
+
+	dos_set_umb_link_state(true);
+	dos_set_allocation_strategy(DOS_FIT_BEST | DOS_FIT_HIGHONLY);
+
+	new_segment = dos_alloc(get_paragraphs(size));
+
+	dos_set_umb_link_state(old_umb_link);
+	dos_set_allocation_strategy(old_strategy);
+
+	return new_segment;
+}
+
+static int reallocate_to_umb(LPTSRDATA __far * data)
+{
+	const unsigned int resident_size = get_resident_program_size();
+	LPTSRDATA old_data = *data;
+	__segment old_psp_segment = FP_SEG(old_data) - (DOS_PSP_SIZE/16);
+	__segment new_psp_segment;
+
 	deallocate_environment(_psp);
 
+	// If we are already in UMA, don't bother
+	if (old_psp_segment >= 0xA000) {
+		return -1;
+	}
+
+	new_psp_segment = allocate_umb(resident_size);
+
+	if (new_psp_segment && new_psp_segment >= 0xA000) {
+		__segment new_segment = new_psp_segment + (DOS_PSP_SIZE/16);
+		printf("Moving to upper memory\n");
+
+		// Create a new program instance including PSP at the new_segment
+		copy_program(new_psp_segment, old_psp_segment, resident_size);
+
+		// Tell DOS to "switch" to the new program
+		dos_set_psp(new_psp_segment);
+
+		// Now update the data pointer to the new segment
+		*data = MK_FP(new_segment, FP_OFF(old_data));
+
+		return 0;
+	} else {
+		printf("No upper memory available\n");
+		if (new_psp_segment) {
+			// In case we got another low-memory segment...
+			dos_free(new_psp_segment);
+		}
+
+		return -1;
+	}
+}
+
+static __declspec(aborts) int install_driver(LPTSRDATA data, bool high)
+{
+	const unsigned int resident_size = DOS_PSP_SIZE + get_resident_size();
+
+	// No more interruptions from now on and until we TSR.
+	// Inserting ourselves in the interrupt chain should be atomic.
+	_disable();
+
 	data->prev_int33_handler = _dos_getvect(0x33);
-	_dos_setvect(0x33, int33_isr);
+	_dos_setvect(0x33, data:>int33_isr);
 
 #if USE_WIN386
 	data->prev_int2f_handler = _dos_getvect(0x2f);
-	_dos_setvect(0x2f, int2f_isr);
+	_dos_setvect(0x2f, data:>int2f_isr);
 #endif
 
 	printf("Driver installed\n");
 
-	_dos_keep(EXIT_SUCCESS, (256 + resident_size + 15) / 16);
-	return 0;
+	// If we reallocated ourselves to UMB,
+	// it's time to free our initial conventional memory allocation
+	if (high) {
+		// We are about to free() our own code segment.
+		// Nothing should try to allocate memory between this and the TSR call
+		// below, since it could overwrite our code...
+		dos_free(_psp);
+	}
+
+	_dos_keep(EXIT_SUCCESS, get_paragraphs(resident_size));
+
+	// Shouldn't reach this part
+	return EXIT_FAILURE;
 }
 
 static bool check_if_driver_uninstallable(LPTSRDATA data)
@@ -298,10 +407,8 @@ static bool check_if_driver_uninstallable(LPTSRDATA data)
 
 static int unconfigure_driver(LPTSRDATA data)
 {
-#if USE_VIRTUALBOX
-	if (data->vbavail) {
-		set_integration(data, false);
-	}
+#if USE_INTEGRATION
+	set_integration(data, false);
 #endif
 
 	ps2m_enable(false);
@@ -320,7 +427,7 @@ static int uninstall_driver(LPTSRDATA data)
 
 	// Find and deallocate the PSP (including the entire program),
 	// it is always 256 bytes (16 paragraphs) before the TSR segment
-	_dos_freemem(FP_SEG(data) - 16);
+	dos_free(FP_SEG(data) - (DOS_PSP_SIZE/16));
 
 	printf("Driver uninstalled\n");
 
@@ -343,19 +450,27 @@ static void print_help(void)
 {
 	printf("\n"
 	    "Usage: \n"
-	    "\tVBMOUSE <ACTION>\n\n"
+	    "    VBMOUSE <ACTION> <ARGS..>\n\n"
 	    "Supported actions:\n"
-	    "\tinstall           install the driver (default)\n"
-	    "\tuninstall         uninstall the driver from memory\n"
+	    "    install           install the driver (default)\n"
+	    "        low               install in conventional memory (otherwise UMB)\n"
+	    "    uninstall         uninstall the driver from memory\n"
 #if USE_WHEEL
-	    "\twheel <ON|OFF>    enable/disable wheel API support\n"
+	    "    wheel <ON|OFF>    enable/disable wheel API support\n"
 #endif
 #if USE_INTEGRATION
-	    "\tinteg <ON|OFF>    enable/disable virtualbox integration\n"
-	    "\thostcur <ON|OFF>  enable/disable mouse cursor rendering in host\n"
+	    "    integ <ON|OFF>    enable/disable virtualbox integration\n"
+	    "    hostcur <ON|OFF>  enable/disable mouse cursor rendering in host\n"
 #endif
-	    "\treset             reset mouse driver settings\n"
+	    "    reset             reset mouse driver settings\n"
 	);
+}
+
+static int invalid_arg(const char *s)
+{
+	fprintf(stderr, "Invalid argument '%s'", s);
+	print_help();
+	return EXIT_FAILURE;
 }
 
 static bool is_true(const char *s)
@@ -388,15 +503,34 @@ int main(int argc, const char *argv[])
 	printf("\nVBMouse %x.%x (like MSMOUSE %x.%x)\n", VERSION_MAJOR, VERSION_MINOR, REPORTED_VERSION_MAJOR, REPORTED_VERSION_MINOR);
 
 	if (argi >= argc || stricmp(argv[argi], "install") == 0) {
+		bool high = true;
+
+		argi++;
+		for (; argi < argc; argi++) {
+			if (stricmp(argv[argi], "low") == 0) {
+				high = false;
+			} else if (stricmp(argv[argi], "high") == 0) {
+				high = true;
+			} else {
+				return invalid_arg(argv[argi]);
+			}
+		}
+
 		if (data) {
 			printf("VBMouse already installed\n");
 			return EXIT_SUCCESS;
 		}
 
 		data = get_tsr_data(false);
+		if (high) {
+			err = reallocate_to_umb(&data);
+			if (err) high = false; // Not fatal
+		} else {
+			deallocate_environment(_psp);
+		}
 		err = configure_driver(data);
 		if (err) return EXIT_FAILURE;
-		return install_driver(data);
+		return install_driver(data, high);
 	} else if (stricmp(argv[argi], "uninstall") == 0) {
 		if (!data) return driver_not_found();
 		if (!check_if_driver_uninstallable(data)) {
@@ -449,8 +583,7 @@ int main(int argc, const char *argv[])
 #endif
 	} else if (stricmp(argv[argi], "reset") == 0) {
 		return driver_reset();
+	} else {
+		return invalid_arg(argv[argi]);
 	}
-
-	print_help();
-	return EXIT_FAILURE;
 }

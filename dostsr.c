@@ -648,7 +648,7 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 }
 
 /** PS/2 BIOS calls this routine to notify mouse events. */
-static void __far ps2_mouse_handler(uint16_t word1, uint16_t word2, uint16_t word3, uint16_t word4)
+static void ps2_mouse_handler(uint16_t word1, uint16_t word2, uint16_t word3, uint16_t word4)
 {
 #pragma aux ps2_mouse_handler "*" parm caller [ax] [bx] [cx] [dx] modify [ax bx cx dx si di es fs gs]
 
@@ -876,7 +876,7 @@ static void reset_mouse_hardware()
 	ps2m_set_sample_rate(4);    // 4 = 80 reports per second
 	ps2m_set_scaling_factor(1); // 1 = 1:1 scaling
 
-	ps2m_set_callback(ps2_mouse_callback);
+	ps2m_set_callback(get_cs():>ps2_mouse_callback);
 
 #if USE_INTEGRATION
 	// By default, enable absolute mouse
@@ -1290,7 +1290,7 @@ static void int2f_handler(union INTPACK r)
 				break;
 			case VMD_CALLOUT_GET_DOS_MOUSE_API:
 				// Windows is asking our mouse driver for the hook function address
-				r.x.ds = FP_SEG(windows_mouse_callback);
+				r.x.ds = get_cs();
 				r.x.si = FP_OFF(windows_mouse_callback);
 				r.x.ax = 0; // Yes, we are here!
 				break;

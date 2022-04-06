@@ -10,14 +10,19 @@ some additional features:
   Multiple DOS boxes can use this driver simultaneously, 
   and clicks in the DOS window will be passed through to the correct running DOS application.
 
-* PS/2 Wheel and 3 button mouse support, using the API from CuteMouse.
-
 * Integration with VirtualBox: in many DOS programs, the mouse can be used without requiring capture,
   and will seamlessly integrate with the mouse cursor in the host.
   The mouse cursor will be rendered by the host rather than the guest OS, appearing much more responsive.
   Programs/games that utilize relative mouse motion information will be "jumpy" when this is enabled,
   so this integration can be disabled (either from the VirtualBox menu or by using `vbmouse integ off` after loading
   the driver).
+  
+* Integration with VMware/qemu vmmouse: like the above.
+  Use `vbmouse integ off` to disable it for software requiring relative mouse motions.
+  Host mouse cursor is not implemented and will be always rendered by the guest.
+
+* Wheel and 3 button mouse support, using the API from CuteMouse.
+  This is currently limited to the VirtualBox/VMware integration, albeit limited PS/2 wheel support is planned.
 
 * A companion driver for Windows 3.x that uses this driver (via int33h) instead of accessing the mouse directly,
   so that Windows 3.x gains some of the features of this driver (like mouse integration in VirtualBox).
@@ -25,9 +30,29 @@ some additional features:
 
 Note that it does not support serial mice or anything other than PS/2.
 
-# Install
+# Usage
 
-Just run vbmouse. 
+To install the driver, just run `vbmouse`. 
+
+Run `vbmouse <action>` for specific configuration. Here are the supported actions:
+
+* `install` installs the driver (i.e. the same as if you run `vbmouse`). `vbmouse install low` can be used to force installation in conventional memory; by default, it tries to use a DOS UMB block.
+
+* `uninstall` uninstalls the driver. Note that if you have added some other TSRs after vbmouse, they may be removed.
+
+* `wheel on|off` to enable/disable the wheel support.
+
+* `integ on|off` to enable/disable the VirtualBox/VMware cursor integration. 
+   Useful for programs that expect relative mouse coordinates.
+
+* `hostcur on|off` to enable/disable the host-rendered mouse cursor.
+
+* `reset` resets the mouse to default settings and re-initializes the hardware. 
+   This does not include any of the above settings, but rather the traditional int33 mouse settings (like sensitivity)
+   that may be altered by other programs. It is equivalent to int33/ax=0.
+
+
+
 
 # Building
 
