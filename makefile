@@ -2,10 +2,11 @@
 # Assuming you have sourced `owsetenv` beforehand.
 # 
 dosobjs = dostsr.obj dosmain.obj vbox.obj
-doscflags = -bt=dos -ms -6 -os -oi -w3 -wcd=202
+doscflags = -bt=dos -ms -6 -osi -w3 -wcd=202
 # -ms to use small memory model (though sometimes ss != ds...)
-# -os to optimize for size
-# -oi to put intrinsics online (don't use them much)
+# -osi to optimize for size, put intrinsics inline (to avoid runtime calls)
+# -w3 enables warnings
+# -wcd=202 disables the unreferenced function warning (e.g., for inline functions in headers)
 dostsrcflags = -zu -s -g=RES_GROUP -nd=RES -nt=RES_TEXT -nc=RES_CODE
 # -s to disable stack checks, since it inserts calls to the runtime from the TSR part
 # -zu since ss != ds on the TSR
@@ -13,7 +14,7 @@ dostsrcflags = -zu -s -g=RES_GROUP -nd=RES -nt=RES_TEXT -nc=RES_CODE
 w16objs = w16mouse.obj
 w16cflags = -bt=windows -bd -mc -zu -s -6 -oi -w3 -wcd=202
 # -bd to build DLL
-# -mc to use compact memory model (far data pointers, ss != ds always)
+# -mc to use compact memory model (far data pointers, ss != ds in a DLL)
 # -zu for DLL calling convention (ss != ds)
 # -s to disable stack checks, since the runtime uses MessageBox() to abort (which we can't call from mouse.drv)
 
