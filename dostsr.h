@@ -71,8 +71,12 @@ typedef struct tsrdata {
 #if USE_WIN386
 	void (__interrupt __far *prev_int2f_handler)();
 #endif
+#if USE_WHEEL
 	/** Whether to enable & use wheel mouse. */
 	bool usewheel;
+	/** Key (scancode) to generate on wheel scroll up/down, or 0 for none. */
+	uint16_t wheel_up_key, wheel_down_key;
+#endif
 
 	// Video settings
 	/** Information of the current video mode. */
@@ -90,8 +94,10 @@ typedef struct tsrdata {
 	struct point screen_granularity;
 
 	// Detected mouse hardware
+#if USE_WHEEL
 	/** Whether the current mouse has a wheel (and support is enabled). */
 	bool haswheel;
+#endif
 
 	// Current mouse settings
 	/** Mouse sensitivity/speed. */
@@ -112,6 +118,11 @@ typedef struct tsrdata {
 	struct point cursor_hotspot;
 	/** Masks for the graphic cursor. */
 	uint16_t cursor_graphic[GRAPHIC_CURSOR_DATA_LEN/sizeof(uint16_t)];
+#if USE_WHEEL
+	/** Whether someone asked for the int33 wheel API, in which case we
+	 *  should send them wheel movement rather than fake keypresses. */
+	bool usewheelapi;
+#endif
 
 	// Current mouse status
 	/** Current cursor position (in pixels). */

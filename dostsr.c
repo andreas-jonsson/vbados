@@ -24,6 +24,7 @@
 #include "dlog.h"
 #include "ps2.h"
 #include "int10vga.h"
+#include "int16kbd.h"
 #include "int2fwin.h"
 #include "int33.h"
 #include "vbox.h"
@@ -670,15 +671,30 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 
 	bound_position_to_window();
 
+#if USE_WHEEL
 	if (data.haswheel && z) {
-		events |= INT33_EVENT_MASK_WHEEL_MOVEMENT;
-		// Higher byte of buttons contains wheel movement
-		buttons |= (z & 0xFF) << 8;
-		// Accumulate delta wheel movement
-		data.wheel_delta += z;
-		data.wheel_last.x = data.pos.x;
-		data.wheel_last.y = data.pos.y;
+		if (!data.usewheelapi && (data.wheel_up_key || data.wheel_down_key)) {
+			// Emulate keystrokes on wheel movement
+			if (z < 0 && data.wheel_up_key) {
+				for (; z < 0; z++) {
+					int16_store_keystroke(data.wheel_up_key);
+				}
+			} else if (z > 0 && data.wheel_up_key) {
+				for (; z > 0; z--) {
+					int16_store_keystroke(data.wheel_down_key);
+				}
+			}
+		} else {
+			events |= INT33_EVENT_MASK_WHEEL_MOVEMENT;
+			// Higher byte of buttons contains wheel movement
+			buttons |= (z & 0xFF) << 8;
+			// Accumulate delta wheel movement
+			data.wheel_delta += z;
+			data.wheel_last.x = data.pos.x;
+			data.wheel_last.y = data.pos.y;
+		}
 	}
+#endif
 
 	// Update button status
 	for (i = 0; i < NUM_BUTTONS; ++i) {
@@ -782,12 +798,14 @@ static void ps2_mouse_handler(uint16_t word1, uint16_t word2, uint16_t word3, ui
 			// Rely on PS/2 relative coordinates.
 		}
 
+#if USE_WHEEL
 		// VirtualBox/Bochs BIOS does not pass wheel data to the callback,
 		// so we will fetch it directly from the BIOS data segment.
 		if (data.haswheel) {
 			int8_t __far * mouse_packet = MK_FP(bda_get_ebda_segment(), 0x28);
 			z = mouse_packet[3];
 		}
+#endif
 	}
 #endif /* USE_VIRTUALBOX */
 
@@ -937,7 +955,6 @@ static void reset_mouse_hardware()
 		ps2m_init(PS2M_PACKET_SIZE_PLAIN);
 	}
 #else
-	data.haswheel = false;
 	ps2m_init(PS2M_PACKET_SIZE_PLAIN);
 #endif
 
@@ -977,6 +994,10 @@ static void reset_mouse_settings()
 	data.cursor_hotspot.x = 0;
 	data.cursor_hotspot.y = 0;
 	memcpy(data.cursor_graphic, default_cursor_graphic, sizeof(data.cursor_graphic));
+
+#if USE_WHEEL
+	data.usewheelapi = false;
+#endif
 
 	refresh_cursor(); // This will hide the cursor and update data.cursor_visible
 }
@@ -1061,10 +1082,12 @@ static void int33_handler(union INTPACK r)
 		r.x.cx = snap_to_grid(data.pos.x, data.screen_granularity.x);
 		r.x.dx = snap_to_grid(data.pos.y, data.screen_granularity.y);
 		r.x.bx = data.buttons;
+#if USE_WHEEL
 		if (data.haswheel) {
 			r.h.bh = data.wheel_delta;
 			data.wheel_delta = 0;
 		}
+#endif
 		break;
 	case INT33_SET_MOUSE_POSITION:
 #if TRACE_EVENTS
@@ -1082,30 +1105,34 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_GET_BUTTON_PRESSED_COUNTER:
 		r.x.ax = data.buttons;
+#if USE_WHEEL
 		if (data.haswheel) {
 			r.h.bh = data.wheel_delta;
+			if (r.x.bx == -1) {
+				// Asked for wheel information
+				return_clear_wheel_counter(&r);
+				break;
+			}
 		}
-		if (data.haswheel && r.x.bx == -1) {
-			// Wheel information
-			return_clear_wheel_counter(&r);
-		} else {
-			// Regular button information
-			int btn = MIN(r.x.bx, NUM_BUTTONS - 1);
-			return_clear_button_counter(&r, &data.button[btn].pressed);
-		}
+#endif
+		// Regular button information
+		return_clear_button_counter(&r,
+		    &data.button[MIN(r.x.bx, NUM_BUTTONS - 1)].pressed);
 		break;
 	case INT33_GET_BUTTON_RELEASED_COUNTER:
 		r.x.ax = data.buttons;
+#if USE_WHEEL
 		if (data.haswheel) {
 			r.h.bh = data.wheel_delta;
+			if (r.x.bx == -1) {
+				// Asked for wheel information
+				return_clear_wheel_counter(&r);
+				break;
+			}
 		}
-		if (data.haswheel && r.x.bx == -1) {
-			// Wheel information
-			return_clear_wheel_counter(&r);
-		} else {
-			int btn = MIN(r.x.bx, NUM_BUTTONS - 1);
-			return_clear_button_counter(&r, &data.button[btn].released);
-		}
+#endif
+		return_clear_button_counter(&r,
+		    &data.button[MIN(r.x.bx, NUM_BUTTONS - 1)].released);
 		break;
 	case INT33_SET_HORIZONTAL_WINDOW:
 		dlog_print("Mouse set horizontal window [");
@@ -1249,9 +1276,11 @@ static void int33_handler(union INTPACK r)
 #if USE_WHEEL
 	// Wheel API extensions:
 	case INT33_GET_CAPABILITIES:
+		dlog_puts("Mouse get capabitilies");
 		r.x.ax = INT33_WHEEL_API_MAGIC; // Driver supports wheel API
 		r.x.bx = 0;
 		r.x.cx = data.haswheel ? INT33_CAPABILITY_MOUSE_API : 0;
+		data.usewheelapi = true; // Someone calling this function likely wants to use wheel API
 		break;
 #endif
 	// Our internal API extensions:

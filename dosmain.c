@@ -31,6 +31,7 @@
 #include "vmware.h"
 #include "dostsr.h"
 
+#if USE_WHEEL
 static void detect_wheel(LPTSRDATA data)
 {
 	// Do a quick check for a mouse wheel here.
@@ -53,6 +54,34 @@ static int set_wheel(LPTSRDATA data, bool enable)
 
 	return 0;
 }
+
+static int set_wheel_key(LPTSRDATA data, const char *keyname)
+{
+	if (!data->usewheel || !data->haswheel) {
+		fprintf(stderr, "Wheel not detected or support not enabled\n");
+		return EXIT_FAILURE;
+	}
+	if (keyname) {
+		if (stricmp(keyname, "updn") == 0) {
+			data->wheel_up_key = 0x4800;
+			data->wheel_down_key = 0x5000;
+			printf("Generate Up Arrow / Down Arrow key presses on wheel movement");
+		} else if (stricmp(keyname, "pageupdn") == 0) {
+			data->wheel_up_key = 0x4900;
+			data->wheel_down_key = 0x5100;
+			printf("Generate PageUp / PageDown key presses on wheel movement");
+		} else {
+			fprintf(stderr, "Unknown key '%s'\n", keyname);
+			return EXIT_FAILURE;
+		}
+	} else {
+		printf("Disabling wheel keystroke generation\n");
+		data->wheel_up_key = 0;
+		data->wheel_down_key = 0;
+	}
+	return EXIT_SUCCESS;
+}
+#endif /* USE_WHEEL */
 
 #if USE_VIRTUALBOX
 static int set_virtualbox_integration(LPTSRDATA data, bool enable)
@@ -224,9 +253,9 @@ static int configure_driver(LPTSRDATA data)
 #if USE_WHEEL
 	// Let's utilize the wheel by default
 	data->usewheel = true;
+	data->wheel_up_key = 0;
+	data->wheel_down_key = 0;
 	detect_wheel(data);
-#else
-	data->usewheel = false;
 #endif
 
 #if USE_INTEGRATION
@@ -383,21 +412,21 @@ static __declspec(aborts) int install_driver(LPTSRDATA data, bool high)
 static bool check_if_driver_uninstallable(LPTSRDATA data)
 {
 	void (__interrupt __far *cur_int33_handler)() = _dos_getvect(0x33);
-	void (__interrupt __far *our_int33_handler)() = data:>int33_isr;
 
-	if (cur_int33_handler != our_int33_handler) {
-		fprintf(stderr, "INT33 has been hooked by someone else, removing anyway\n");
-		return true;
+	// Compare the segment of the installed handler to see if its ours
+	// or someone else's
+	if (FP_SEG(cur_int33_handler) != FP_SEG(data)) {
+		fprintf(stderr, "INT33 has been hooked by someone else, cannot safely remove\n");
+		return false;
 	}
 
 #if USE_WIN386
 	{
 		void (__interrupt __far *cur_int2f_handler)() = _dos_getvect(0x2f);
-		void (__interrupt __far *our_int2f_handler)() = data:>int2f_isr;
 
-		if (cur_int2f_handler != our_int2f_handler) {
-			fprintf(stderr, "INT2F has been hooked by someone else, removing anyway\n");
-			return true;
+		if (FP_SEG(cur_int2f_handler) != FP_SEG(data)) {
+			fprintf(stderr, "INT2F has been hooked by someone else, cannot safely remove\n");
+			return false;
 		}
 	}
 #endif
@@ -452,23 +481,32 @@ static void print_help(void)
 	    "Usage: \n"
 	    "    VBMOUSE <ACTION> <ARGS..>\n\n"
 	    "Supported actions:\n"
-	    "    install           install the driver (default)\n"
-	    "        low               install in conventional memory (otherwise UMB)\n"
-	    "    uninstall         uninstall the driver from memory\n"
+	    "    install            install the driver (default)\n"
+	    "        low                install in conventional memory (otherwise UMB)\n"
+	    "    uninstall          uninstall the driver from memory\n"
 #if USE_WHEEL
-	    "    wheel <ON|OFF>    enable/disable wheel API support\n"
+	    "    wheel <ON|OFF>     enable/disable wheel API support\n"
+	    "    wheelkey <KEY|OFF> emulate a specific keystroke on wheel scroll\n"
+	    "                          supported keys: updn, pageupdn\n"
 #endif
 #if USE_INTEGRATION
-	    "    integ <ON|OFF>    enable/disable virtualbox integration\n"
-	    "    hostcur <ON|OFF>  enable/disable mouse cursor rendering in host\n"
+	    "    integ <ON|OFF>     enable/disable virtualbox integration\n"
+	    "    hostcur <ON|OFF>   enable/disable mouse cursor rendering in host\n"
 #endif
-	    "    reset             reset mouse driver settings\n"
+	    "    reset              reset mouse driver settings\n"
 	);
 }
 
 static int invalid_arg(const char *s)
 {
 	fprintf(stderr, "Invalid argument '%s'", s);
+	print_help();
+	return EXIT_FAILURE;
+}
+
+static int arg_required(const char *s)
+{
+	fprintf(stderr, "Argument required for '%s'", s);
 	print_help();
 	return EXIT_FAILURE;
 }
@@ -553,6 +591,24 @@ int main(int argc, const char *argv[])
 		}
 
 		return set_wheel(data, enable);
+	} else if (stricmp(argv[argi], "wheelkey") == 0) {
+		bool enable = true;
+		const char *key = 0;
+
+		if (!data) return driver_not_found();
+
+		argi++;
+		if (argi < argc) {
+			if (is_false(argv[argi])) enable = false;
+			else                      key = argv[argi];
+		}
+
+		if (enable) {
+			if (!key) return arg_required("wheelkey");
+			return set_wheel_key(data, key);
+		} else {
+			return set_wheel_key(data, 0);
+		}
 #endif
 #if USE_INTEGRATION
 	} else if (stricmp(argv[argi], "integ") == 0) {
