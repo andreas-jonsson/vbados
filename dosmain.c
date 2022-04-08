@@ -556,6 +556,7 @@ int main(int argc, const char *argv[])
 
 		if (data) {
 			printf("VBMouse already installed\n");
+			print_help();
 			return EXIT_SUCCESS;
 		}
 
