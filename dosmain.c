@@ -65,11 +65,11 @@ static int set_wheel_key(LPTSRDATA data, const char *keyname)
 		if (stricmp(keyname, "updn") == 0) {
 			data->wheel_up_key = 0x4800;
 			data->wheel_down_key = 0x5000;
-			printf("Generate Up Arrow / Down Arrow key presses on wheel movement");
+			printf("Generate Up Arrow / Down Arrow key presses on wheel movement\n");
 		} else if (stricmp(keyname, "pageupdn") == 0) {
 			data->wheel_up_key = 0x4900;
 			data->wheel_down_key = 0x5100;
-			printf("Generate PageUp / PageDown key presses on wheel movement");
+			printf("Generate PageUp / PageDown key presses on wheel movement\n");
 		} else {
 			fprintf(stderr, "Unknown key '%s'\n", keyname);
 			return EXIT_FAILURE;
@@ -499,14 +499,14 @@ static void print_help(void)
 
 static int invalid_arg(const char *s)
 {
-	fprintf(stderr, "Invalid argument '%s'", s);
+	fprintf(stderr, "Invalid argument '%s'\n", s);
 	print_help();
 	return EXIT_FAILURE;
 }
 
 static int arg_required(const char *s)
 {
-	fprintf(stderr, "Argument required for '%s'", s);
+	fprintf(stderr, "Argument required for '%s'\n", s);
 	print_help();
 	return EXIT_FAILURE;
 }
