@@ -85,6 +85,9 @@ typedef struct tsrdata {
 	 *  physical screen coordinates.
 	 *  real coordinates = virtual coordinates * screen_scale. */
 	struct point screen_scale;
+	/** In text modes, we want to snap the cursor position to the cell grid.
+	 *  This stores the desired grid granularity. */
+	struct point screen_granularity;
 
 	// Detected mouse hardware
 	/** Whether the current mouse has a wheel (and support is enabled). */

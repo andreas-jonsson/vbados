@@ -54,6 +54,14 @@ static void bound_position_to_window(void)
 	if (data.pos.y > data.max.y) data.pos.y = data.max.y;
 }
 
+/** Constraints coordinate value to the desired granularity,
+ *  which must be a power of two. */
+static inline int16_t snap_to_grid(int16_t val, int16_t granularity)
+{
+	// Build a bitmask that masks away the undesired low-order bits
+	return val & (-granularity);
+}
+
 static void hide_text_cursor(void)
 {
 	// Restore the character under the old position of the cursor
@@ -476,6 +484,8 @@ static void reload_video_info(void)
 	data.screen_max.y = data.video_mode.pixels_height - 1;
 	data.screen_scale.x = 1;
 	data.screen_scale.y = 1;
+	data.screen_granularity.x = 1;
+	data.screen_granularity.y = 1;
 
 	// The actual range of coordinates expected by int33 clients
 	// is, for some reason, different than real resolution in some modes.
@@ -483,6 +493,14 @@ static void reload_video_info(void)
 	if (data.video_mode.pixels_width == 320) {
 		data.screen_max.x = 640 - 1;
 		data.screen_scale.x = 640 / 320;
+	}
+
+	// In text modes, we are supposed to always round the mouse cursor
+	// to character boundaries.
+	if (data.video_mode.type == VIDEO_TEXT) {
+		// Always assume 8x8 character size irregardless of true font
+		data.screen_granularity.x = 8;
+		data.screen_granularity.y = 8;
 	}
 
 	dlog_print("Current video mode=");
@@ -656,6 +674,10 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 		events |= INT33_EVENT_MASK_WHEEL_MOVEMENT;
 		// Higher byte of buttons contains wheel movement
 		buttons |= (z & 0xFF) << 8;
+		// Accumulate delta wheel movement
+		data.wheel_delta += z;
+		data.wheel_last.x = data.pos.x;
+		data.wheel_last.y = data.pos.y;
 	}
 
 	// Update button status
@@ -683,8 +705,11 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 
 	events &= data.event_mask;
 	if (data.event_handler && events) {
+		x = snap_to_grid(data.pos.x, data.screen_granularity.x);
+		y = snap_to_grid(data.pos.y, data.screen_granularity.y);
+
 		call_event_handler(data.event_handler, events,
-		                   buttons, data.pos.x, data.pos.y, data.delta.x, data.delta.y);
+		                   buttons, x, y, data.delta.x, data.delta.y);
 	}
 }
 
@@ -989,8 +1014,8 @@ static void reset_mouse_state()
 
 static void return_clear_wheel_counter(union INTPACK __far *r)
 {
-	r->x.cx = data.wheel_last.x;
-	r->x.dx = data.wheel_last.y;
+	r->x.cx = snap_to_grid(data.wheel_last.x, data.screen_granularity.x);
+	r->x.dx = snap_to_grid(data.wheel_last.y, data.screen_granularity.y);
 	r->x.bx = data.wheel_delta;
 	data.wheel_last.x = 0;
 	data.wheel_last.y = 0;
@@ -999,8 +1024,8 @@ static void return_clear_wheel_counter(union INTPACK __far *r)
 
 static void return_clear_button_counter(union INTPACK __far *r, struct buttoncounter *c)
 {
-	r->x.cx = c->last.x;
-	r->x.dx = c->last.y;
+	r->x.cx = snap_to_grid(c->last.x, data.screen_granularity.x);
+	r->x.dx = snap_to_grid(c->last.y, data.screen_granularity.y);
 	r->x.bx = c->count;
 	c->last.x = 0;
 	c->last.y = 0;
@@ -1033,8 +1058,8 @@ static void int33_handler(union INTPACK r)
 #if TRACE_EVENTS
 		dlog_puts("Mouse get position");
 #endif
-		r.x.cx = data.pos.x;
-		r.x.dx = data.pos.y;
+		r.x.cx = snap_to_grid(data.pos.x, data.screen_granularity.x);
+		r.x.dx = snap_to_grid(data.pos.y, data.screen_granularity.y);
 		r.x.bx = data.buttons;
 		if (data.haswheel) {
 			r.h.bh = data.wheel_delta;

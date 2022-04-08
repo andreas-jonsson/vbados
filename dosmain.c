@@ -383,7 +383,7 @@ static __declspec(aborts) int install_driver(LPTSRDATA data, bool high)
 static bool check_if_driver_uninstallable(LPTSRDATA data)
 {
 	void (__interrupt __far *cur_int33_handler)() = _dos_getvect(0x33);
-	void (__interrupt __far *our_int33_handler)() = MK_FP(FP_SEG(data), FP_OFF(int33_isr));
+	void (__interrupt __far *our_int33_handler)() = data:>int33_isr;
 
 	if (cur_int33_handler != our_int33_handler) {
 		fprintf(stderr, "INT33 has been hooked by someone else, removing anyway\n");
@@ -393,7 +393,7 @@ static bool check_if_driver_uninstallable(LPTSRDATA data)
 #if USE_WIN386
 	{
 		void (__interrupt __far *cur_int2f_handler)() = _dos_getvect(0x2f);
-		void (__interrupt __far *our_int2f_handler)() = MK_FP(FP_SEG(data), FP_OFF(int2f_isr));
+		void (__interrupt __far *our_int2f_handler)() = data:>int2f_isr;
 
 		if (cur_int2f_handler != our_int2f_handler) {
 			fprintf(stderr, "INT2F has been hooked by someone else, removing anyway\n");
