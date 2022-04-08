@@ -53,8 +53,8 @@
 
 #define VERSION_MAJOR 0
 #define VERSION_MINOR 4
-#define REPORTED_VERSION_MAJOR 8
-#define REPORTED_VERSION_MINOR 0x20
+#define REPORTED_VERSION_MAJOR 6
+#define REPORTED_VERSION_MINOR 0x30
 
 #if USE_VIRTUALBOX
 #include "vbox.h"
@@ -121,6 +121,8 @@ typedef struct tsrdata {
 	/** Current remainder of delta movement that does not yet translate to an entire mickey
 	 *  Usually only when mickeysPerLine is not a multiple of 8. */
 	struct point delta_frac;
+	/** Last absolute position (to compute a delta for relative motion emulation). Using -1 for "none". */
+	struct point abs_pos;
 	/** Total mickeys moved in the last second. */
 	uint16_t total_motion;
 	/** Ticks when the above value was last reset. */

@@ -467,21 +467,9 @@ static void load_cursor(void)
 #endif
 }
 
-/** Refreshes the information about the current video mode. */
-static void refresh_video_info(void)
+/** Reloads the information about the current video mode. */
+static void reload_video_info(void)
 {
-	uint8_t cur_mode = bda_get_video_mode() & ~0x80;
-	bool mode_change = cur_mode != data.video_mode.mode;
-
-	if (mode_change && data.cursor_visible) {
-		// Assume cursor is lost
-		data.cursor_visible = false;
-	}
-
-	dlog_print("Current video mode=");
-	dlog_printx(cur_mode);
-	dlog_endline();
-
 	get_current_video_mode_info(&data.video_mode);
 
 	data.screen_max.x = data.video_mode.pixels_width - 1;
@@ -495,6 +483,53 @@ static void refresh_video_info(void)
 	if (data.video_mode.pixels_width == 320) {
 		data.screen_max.x = 640 - 1;
 		data.screen_scale.x = 640 / 320;
+	}
+
+	dlog_print("Current video mode=");
+	dlog_printx(data.video_mode.mode);
+	dlog_print(" screen_max=");
+	dlog_printd(data.screen_max.x);
+	dlog_putc(',');
+	dlog_printd(data.screen_max.y);
+	dlog_endline();
+}
+
+/** True if the current video is different from what we have stored
+ *  and we probably need to recompute video mode info. */
+static inline bool video_mode_changed(void)
+{
+	uint8_t cur_mode = bda_get_video_mode() & ~0x80;
+
+	if (cur_mode != data.video_mode.mode)
+		return true;
+
+	if (data.video_mode.type == VIDEO_TEXT) {
+		// Also check to see if the font size was changed..
+		return data.video_mode.pixels_height != (bda_get_last_row()+1) * 8;
+	} else {
+		return false;
+	}
+}
+
+/** Checks if the video mode has changed and if so
+ *  refreshes the information about the current video mode.  */
+static void refresh_video_info(void)
+{
+	if (video_mode_changed()) {
+		if (data.cursor_visible) {
+			// Assume cursor is lost with no way to restore prev contents
+			data.cursor_visible = false;
+		}
+
+		reload_video_info();
+
+		if (data.video_mode.type != VIDEO_UNKNOWN) {
+			// If we know the screen size for this mode, then reset the window to it
+			data.min.x = 0;
+			data.min.y = 0;
+			data.max.x = data.screen_max.x;
+			data.max.y = data.screen_max.y;
+		}
 	}
 }
 
@@ -569,10 +604,14 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 			// Programs that expect relative movement data
 			// will almost never set a mickeyPerPixel value.
 			// So all we can do is guess.
-			data.delta.x += (x - data.pos.x) * 8;
-			data.delta.y += (y - data.pos.y) * 8;
+			if (data.abs_pos.x >= 0 && data.abs_pos.y >= 0) {
+				data.delta.x += (x - data.abs_pos.x) * 8;
+				data.delta.y += (y - data.abs_pos.y) * 8;
+			}
+			data.abs_pos.x = x;
+			data.abs_pos.y = y;
 
-			// Store the new absolute position
+			// Set the new absolute position
 			data.pos.x = x;
 			data.pos.y = y;
 			data.pos_frac.x = 0;
@@ -603,6 +642,8 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 		data.delta.y += y;
 		data.delta_frac.x = 0;
 		data.delta_frac.y = 0;
+		data.abs_pos.x = -1;
+		data.abs_pos.y = -1;
 
 		// Convert mickeys into pixels
 		data.pos.x += scalei_rem(x, data.mickeysPerLine.x, 8, &data.pos_frac.x);
@@ -704,6 +745,7 @@ static void ps2_mouse_handler(uint16_t word1, uint16_t word2, uint16_t word3, ui
 		if ((vbox_get_mouse(&data.vb, &abs, &vbx, &vby) == 0) && abs) {
 			// VirtualBox gives unsigned coordinates from 0...0xFFFFU,
 			// scale to 0..screen_size (in pixels).
+			refresh_video_info();
 			// If the user is using a window larger than the screen, use it.
 			x = scaleu(vbx, 0xFFFFU, MAX(data.max.x, data.screen_max.x));
 			y = scaleu(vby, 0xFFFFU, MAX(data.max.y, data.screen_max.y));
@@ -757,10 +799,12 @@ static void ps2_mouse_handler(uint16_t word1, uint16_t word2, uint16_t word3, ui
 				z = (int8_t) (uint8_t) vmw.z;
 			} else {
 				abs = true;
+				// Scale to screen coordinates
+				refresh_video_info();
 				x = scaleu(vmw.x & 0xFFFFU, 0xFFFFU,
-				            MAX(data.max.x, data.screen_max.x));
+				           MAX(data.max.x, data.screen_max.x));
 				y = scaleu(vmw.y & 0xFFFFU, 0xFFFFU,
-				            MAX(data.max.y, data.screen_max.y));
+				           MAX(data.max.y, data.screen_max.y));
 				z = (int8_t) (uint8_t) vmw.z;
 			}
 
@@ -924,6 +968,8 @@ static void reset_mouse_state()
 	data.delta.y = 0;
 	data.delta_frac.x = 0;
 	data.delta_frac.y = 0;
+	data.abs_pos.x = -1;
+	data.abs_pos.y = -1;
 	data.buttons = 0;
 	for (i = 0; i < NUM_BUTTONS; i++) {
 		data.button[i].pressed.count = 0;
@@ -968,7 +1014,7 @@ static void int33_handler(union INTPACK r)
 	switch (r.x.ax) {
 	case INT33_RESET_MOUSE:
 		dlog_puts("Mouse reset");
-		refresh_video_info();
+		reload_video_info();
 		reset_mouse_settings();
 		reset_mouse_hardware();
 		reset_mouse_state();
@@ -984,6 +1030,9 @@ static void int33_handler(union INTPACK r)
 		refresh_cursor();
 		break;
 	case INT33_GET_MOUSE_POSITION:
+#if TRACE_EVENTS
+		dlog_puts("Mouse get position");
+#endif
 		r.x.cx = data.pos.x;
 		r.x.dx = data.pos.y;
 		r.x.bx = data.buttons;
@@ -993,6 +1042,9 @@ static void int33_handler(union INTPACK r)
 		}
 		break;
 	case INT33_SET_MOUSE_POSITION:
+#if TRACE_EVENTS
+		dlog_puts("Mouse set position");
+#endif
 		data.pos.x = r.x.cx;
 		data.pos.y = r.x.dx;
 		data.pos_frac.x = 0;
@@ -1073,14 +1125,13 @@ static void int33_handler(union INTPACK r)
 		refresh_cursor();
 		break;
 	case INT33_GET_MOUSE_MOTION:
+#if TRACE_EVENTS
+		dlog_puts("Mouse get motion");
+#endif
 		r.x.cx = data.delta.x;
 		r.x.dx = data.delta.y;
 		data.delta.x = 0;
 		data.delta.y = 0;
-#if USE_VIRTUALBOX
-		// Likely this means we need a relative mouse, or we will get out of sync
-		//if (data.vbabs) enable_vbox_absolute(false);
-#endif
 		break;
 	case INT33_SET_EVENT_HANDLER:
 		dlog_puts("Mouse set event handler");
@@ -1143,7 +1194,7 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_RESET_SETTINGS:
 		dlog_puts("Mouse reset settings");
-		refresh_video_info();
+		reload_video_info();
 		reset_mouse_settings();
 		reset_mouse_state();
 		r.x.ax = INT33_MOUSE_FOUND;
@@ -1160,8 +1211,9 @@ static void int33_handler(union INTPACK r)
 		r.h.cl = 0;
 		break;
 	case INT33_GET_MAX_COORDINATES:
-		r.x.cx = data.screen_max.x;
-		r.x.dx = data.screen_max.y;
+		r.x.bx = 0;
+		r.x.cx = MAX(data.screen_max.x, data.max.x);
+		r.x.dx = MAX(data.screen_max.y, data.max.y);
 		break;
 	case INT33_GET_WINDOW:
 		r.x.ax = data.min.x;
@@ -1169,11 +1221,15 @@ static void int33_handler(union INTPACK r)
 		r.x.cx = data.max.x;
 		r.x.dx = data.max.y;
 		break;
+#if USE_WHEEL
+	// Wheel API extensions:
 	case INT33_GET_CAPABILITIES:
 		r.x.ax = INT33_WHEEL_API_MAGIC; // Driver supports wheel API
 		r.x.bx = 0;
 		r.x.cx = data.haswheel ? INT33_CAPABILITY_MOUSE_API : 0;
 		break;
+#endif
+	// Our internal API extensions:
 	case INT33_GET_TSR_DATA:
 		dlog_puts("Get TSR data");
 		r.x.es = FP_SEG(&data);
@@ -1333,7 +1389,7 @@ static LPTSRDATA int33_get_tsr_data(void);
 	"xor ax, ax" \
 	"mov es, ax" \
 	"mov di, ax" \
-	"mov ax, 0x7f" \
+	"mov ax, 0x73" \
 	"int 0x33"   \
 	__value [es di] \
 	__modify [ax]

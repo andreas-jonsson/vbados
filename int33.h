@@ -134,12 +134,18 @@ enum INT33_API {
 	 *  @return ax min_x, bx min_y, cx max_x, d max_y. */
 	INT33_GET_WINDOW = 0x31,
 
+	/** Get pointer to driver's copyright string in es:di. */
+	INT33_GET_COPYRIGHT_STRING = 0x4D,
+
+	/** Get pointer to driver's version string in es:di. */
+	INT33_GET_VERSION_STRING = 0x6D,
+
 	// Wheel API Extensions:
 	INT33_GET_CAPABILITIES = 0x11,
 
 	// Our internal API functions:
-	/** Obtains a pointer to the driver's data. */
-	INT33_GET_TSR_DATA = 0x7f
+	/** Obtains a pointer to the driver's data in es:di. */
+	INT33_GET_TSR_DATA = 0x73,
 };
 
 enum INT33_CAPABILITY_BITS {
@@ -183,7 +189,7 @@ enum INT33_EVENT_MASK {
 	INT33_EVENT_MASK_ALL                    = 0xFFFF
 };
 
-#pragma aux INT33_CB far loadds parm [ax] [bx] [cx] [dx] [si] [di]
+#pragma aux INT33_CB far loadds parm [ax] [bx] [cx] [dx] [si] [di] modify []
 
 static uint16_t int33_reset(void);
 #pragma aux int33_reset = \
@@ -224,6 +230,22 @@ static uint16_t int33_get_driver_version(void);
 	"mov bx, 0" \
 	"end:" \
 	__value [bx] \
+	__modify [ax bx cx dx]
+
+static bool int33_get_max_coordinates(int16_t *x, int16_t *y);
+#pragma aux int33_get_max_coordinates = \
+	"mov ax, 0x26" \
+	"mov bx, -1" \
+	"int 0x33" \
+	"xor ax, ax" \
+	"test bx, bx" \
+	"jnz error" \
+	"mov [si], cx" \
+	"mov [di], dx" \
+	"mov al, 1" \
+	"error:" \
+	__parm [si] [di] \
+	__value [al] \
 	__modify [ax bx cx dx]
 
 #endif /* INT33_H */

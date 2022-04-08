@@ -28,6 +28,7 @@ static inline uint8_t bda_get_byte(unsigned int offset) {
 #define bda_get_video_page_size() bda_get_word(0x4c)
 #define bda_get_cur_video_page()  bda_get_word(0x62)
 #define bda_get_last_row()        bda_get_byte(0x84)
+#define bda_get_char_height()     bda_get_word(0x85)
 
 #define bda_get_tick_count()      bda_get_dword(0x6c)
 #define bda_get_tick_count_lo()   bda_get_word(0x6c)

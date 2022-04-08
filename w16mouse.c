@@ -18,6 +18,7 @@
  */
 
 #include <windows.h>
+#include <limits.h>
 
 #include "utils.h"
 #include "int33.h"
@@ -52,7 +53,7 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
 {
 	int status = 0;
 
-#if TRACE_EVENTS_IN
+#if TRACE_EVENTS
 	dlog_print("w16mouse: events=");
 	dlog_printx(events);
 	dlog_print(" buttons=");
@@ -84,7 +85,7 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
 		x = (uint16_t)(x) * 2;
 		y = (uint16_t)(y) * 2;
 	} else {
-		// Use mickeys for relative motion
+		// Prefer to use mickeys for relative motion if we don't have absolute data
 		x = delta_x - prev_delta_x;
 		y = delta_y - prev_delta_y;
 
@@ -99,13 +100,15 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
 	dlog_print("w16mouse: event status=");
 	dlog_printx(status);
 	dlog_print(" x=");
-	dlog_printd(x);
+	if (status & SF_ABSOLUTE) dlog_printu(x);
+	                     else dlog_printd(x);
 	dlog_print(" y=");
-	dlog_printd(y);
+	if (status & SF_ABSOLUTE) dlog_printu(y);
+	                     else dlog_printd(y);
 	dlog_endline();
 #endif
 
-	send_event(status, x, (uint16_t)(y), MOUSE_NUM_BUTTONS, 0, 0);
+	send_event(status, x, y, MOUSE_NUM_BUTTONS, 0, 0);
 }
 
 #pragma code_seg ()
@@ -172,7 +175,7 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 VOID FAR PASCAL Disable(VOID)
 {
 	if (enabled) {
-		int33_reset(); // This removes our handler and removes all other settings
+		int33_reset(); // This removes our handler and all other settings
 		enabled = false;
 	}
 }
