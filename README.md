@@ -7,16 +7,18 @@ Like any other DOS mouse driver, it partially supports the MS Mouse API (int 33h
 some additional features:
 
 * Implements the hooks required for DOS boxes inside Windows. 
-  Multiple DOS boxes can use this driver simultaneously, 
+  Multiple DOS boxes can use this driver simultaneously without conflict,
   and clicks in the DOS window will be passed through to the correct running DOS application.
+  [See in action](https://depot.javispedro.com/vbox/vbmouse/vbm_win_adlib.webm).
 
 * Integration with VirtualBox: in many DOS programs, the mouse can be used without requiring capture,
   and will seamlessly integrate with the mouse cursor in the host.
   The mouse cursor will be rendered by the host rather than the guest OS, appearing much more responsive.
+  [See in action](https://depot.javispedro.com/vbox/vbmouse/vbm_edit.webm).
   Programs/games that utilize relative mouse motion information will be "jumpy" when this is enabled,
   so this integration can be disabled (either from the VirtualBox menu or by using `vbmouse integ off` after loading
   the driver).
-  
+
 * Integration with VMware/qemu vmmouse: like the above.
   Use `vbmouse integ off` to disable it for software requiring relative mouse motions.
   Host mouse cursor is not implemented and will be always rendered by the guest.
@@ -24,9 +26,11 @@ some additional features:
 * Wheel and 3 button mouse support, using the API from CuteMouse.
   This is currently limited to the VirtualBox/VMware integration, albeit limited PS/2 wheel support is planned.
 
-* A companion driver for Windows 3.x that uses this driver (via int33h) instead of accessing the mouse directly,
+* Sending fake keys on wheel movements, i.e. faking wheel scroll support using arrow up/down keys.
+
+* A companion driver for Windows 3.x (_vbmouse.drv_) that uses this driver (via int33h) instead of accessing the mouse directly,
   so that Windows 3.x gains some of the features of this driver (like mouse integration in VirtualBox).
-  Wheel doesn't work in Windows 3.x right now.
+  Wheel is not implemented in Windows 3.x right now.
 
 Note that it does not support serial mice or anything other than PS/2.
 
@@ -36,11 +40,14 @@ To install the driver, just run `vbmouse`.
 
 Run `vbmouse <action>` for specific configuration. Here are the supported actions:
 
-* `install` installs the driver (i.e. the same as if you run `vbmouse`). `vbmouse install low` can be used to force installation in conventional memory; by default, it tries to use a DOS UMB block.
+* `install` installs the driver (i.e. the same as if you run `vbmouse`).
+  `vbmouse install low` can be used to force installation in conventional memory; by default, it tries to use a DOS UMB block.
 
-* `uninstall` uninstalls the driver. Note that if you have added some other TSRs after vbmouse, they may be removed.
+* `uninstall` uninstalls the driver. Note that if you have installed some other TSRs after vbmouse, you may not be able to uninstall it.
 
 * `wheel on|off` to enable/disable the wheel support.
+
+* `wheelkey key|off` to set up sending fake keypresses on wheel movement. Only supported `key` right now are `updn` (for the up and down arros) and `pageupdn`.
 
 * `integ on|off` to enable/disable the VirtualBox/VMware cursor integration. 
    Useful for programs that expect relative mouse coordinates.
@@ -51,13 +58,10 @@ Run `vbmouse <action>` for specific configuration. Here are the supported action
    This does not include any of the above settings, but rather the traditional int33 mouse settings (like sensitivity)
    that may be altered by other programs. It is equivalent to int33/ax=0.
 
-
-
-
 # Building
 
-This requires [OpenWatcom 2.0](http://open-watcom.github.io/), albeit it may work with an older version,
-and was only tested on a Linux host.
+This requires [OpenWatcom 2.0](http://open-watcom.github.io/) to build,
+albeit it may work with an older version, and was only tested on a Linux host.
 
 The included makefile is a wmake makefile. To build it just enter the OpenWatcom environment and run `wmake flp`.
 This will create a floppy image containing vbmouse.exe plus the Windows 3.x driver (oemsetup.inf and vbmouse.drv).
@@ -66,10 +70,41 @@ This will create a floppy image containing vbmouse.exe plus the Windows 3.x driv
 
 This is at its core a driver for a plain PS/2 mouse driver, using the PS/2 BIOS.
 If running outside VirtualBox, in fact it will behave like a PS/2 mouse driver.
+Therefore most of the complexity is in the standard "DOS mouse driver" parts,
+like drawing the cursor.
 
 The .exe file is comprised of two segments, the first one contains the resident part,
 while the second one contains the command line interface. This second segment
 is dropped once the driver goes resident. 
+
+### int33 extensions
+
+#### Wheel mouse API
+
+This driver supports the
+[CuteMouse int33 wheel API 1.0](https://github.com/FDOS/mouse/blob/master/wheelapi.txt).
+
+If the `wheelkey` feature is in use, and to avoid sending wheel events twice (once
+as a fake key press, once as a wheel API event), this API will not be enabled until the first
+int33 ax=11h call (check wheel support), after which wheel events will only be sent through
+the wheel API until the next driver reset.
+
+#### Absolute mouse API
+
+There is a very simple extension of the int33 protocol to let clients know whether
+the incoming coordinates come from an absolute device (like the VirtualBox integration)
+or from a relative device (like a real PS/2 mouse or when the integration is disabled).
+
+> When the int33 user interrupt routine is called, bit 8 of CX indicates that the
+> x, y coordinates passed in CX, DX come from an absolute pointing device
+> (and therefore that the mickey counts in SI, DI may be zero or virtualized).
+
+Note that the range of coordinates is still defined as in a traditional int33 driver,
+i.e. the size of the screen unless a larger range is defined via int33 ax=7/8.
+
+The included Win3.x driver uses this API to decide whether to forward the absolute
+OR relative coordinates to Windows, so that one can use the same driver for both types
+without loss of functionality.
 
 ### VirtualBox communication
 
@@ -91,7 +126,7 @@ the driver uses the [Virtual DMA services](https://en.wikipedia.org/wiki/Virtual
 to obtain the physical address.
 
 When VirtualBox is told that the guest wants absolute mouse information, VirtualBox will stop sending
-relative mouse information via the PS/2 mouse. However, the PS/2 controller will still send interrupts
+mouse motion information via the PS/2 mouse. However, the PS/2 controller will still send interrupts
 whenever mouse motion happens, and it will still report mouse button presses. In fact, the only way
 to obtain mouse button presses (and wheel movement) is still through the PS/2 controller.
 
