@@ -1,7 +1,9 @@
 # This is an Open Watcom wmake makefile, not GNU make.
 # Assuming you have sourced `owsetenv` beforehand.
-# 
-dosobjs = dostsr.obj dosmain.obj vbox.obj
+
+mousedosobjs = mousetsr.obj mousmain.obj vbox.obj
+mousew16objs = mousew16.obj
+
 doscflags = -bt=dos -ms -6 -osi -w3 -wcd=202
 # -ms to use small memory model (though sometimes ss != ds...)
 # -osi to optimize for size, put intrinsics inline (to avoid runtime calls)
@@ -11,7 +13,6 @@ dostsrcflags = -zu -s -g=RES_GROUP -nd=RES -nt=RES_TEXT -nc=RES_CODE
 # -s to disable stack checks, since it inserts calls to the runtime from the TSR part
 # -zu since ss != ds on the TSR
 
-w16objs = w16mouse.obj
 w16cflags = -bt=windows -bd -mc -zu -s -6 -oi -w3 -wcd=202
 # -bd to build DLL
 # -mc to use compact memory model (far data pointers, ss != ds in a DLL)
@@ -23,22 +24,22 @@ w16cflags = -bt=windows -bd -mc -zu -s -6 -oi -w3 -wcd=202
 	set include=$(%watcom)/h/win;$(%watcom)/h
 
 # Main DOS driver file
-vbmouse.exe: dosmouse.lnk $(dosobjs) 
-	wlink @$[@ name $@ file { $(dosobjs) } 
+vbmouse.exe: vbmouse.lnk $(mousedosobjs) 
+	wlink @$[@ name $@ file { $(mousedosobjs) } 
 
-dostsr.obj: dostsr.c .AUTODEPEND
+mousetsr.obj: mousetsr.c .AUTODEPEND
 	wcc -fo=$^@ $(doscflags) $(dostsrcflags) $[@
 
-dosmain.obj: dosmain.c .AUTODEPEND
+mousmain.obj: mousmain.c .AUTODEPEND
 	wcc -fo=$^@ $(doscflags) $[@
 
 vbox.obj: vbox.c .AUTODEPEND
 	wcc -fo=$^@ $(doscflags) $[@
 
-vbmouse.drv: w16mouse.lnk $(w16objs)
-	wlink @$[@ name $@ file { $(w16objs) }
+vbmouse.drv: mousew16.lnk $(mousew16objs)
+	wlink @$[@ name $@ file { $(mousew16objs) }
 
-w16mouse.obj: w16mouse.c .AUTODEPEND
+mousew16.obj: mousew16.c .AUTODEPEND
 	wcc -fo=$^@ $(w16cflags) $[@
 
 clean: .SYMBOLIC

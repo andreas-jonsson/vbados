@@ -23,7 +23,7 @@
 #include "utils.h"
 #include "int33.h"
 #include "int2fwin.h"
-#include "w16mouse.h"
+#include "mousew16.h"
 
 #define TRACE_EVENTS 0
 

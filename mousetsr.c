@@ -29,7 +29,7 @@
 #include "int33.h"
 #include "vbox.h"
 #include "vmware.h"
-#include "dostsr.h"
+#include "mousetsr.h"
 
 #define MSB_MASK 0x8000U
 

@@ -29,7 +29,7 @@
 #include "ps2.h"
 #include "vbox.h"
 #include "vmware.h"
-#include "dostsr.h"
+#include "mousetsr.h"
 
 #if USE_WHEEL
 static void detect_wheel(LPTSRDATA data)
