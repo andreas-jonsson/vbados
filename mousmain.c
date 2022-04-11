@@ -29,6 +29,7 @@
 #include "ps2.h"
 #include "vbox.h"
 #include "vmware.h"
+#include "dostsr.h"
 #include "mousetsr.h"
 
 #if USE_WHEEL
@@ -271,107 +272,16 @@ static int configure_driver(LPTSRDATA data)
 	return 0;
 }
 
-/** Converts bytes to MS-DOS "paragraphs" (16 bytes), rounding up. */
-static inline unsigned get_paragraphs(unsigned bytes)
+static int move_driver_to_umb(LPTSRDATA __far * data)
 {
-	return (bytes + 15) / 16;
-}
+	segment_t cur_seg = FP_SEG(data);
+	segment_t umb_seg = reallocate_to_umb(&cur_seg,  get_resident_size() + DOS_PSP_SIZE);
 
-/** Gets the size of the resident part of this program, including the PSP. */
-static inline unsigned get_resident_program_size()
-{
-	return get_resident_size() + DOS_PSP_SIZE;
-}
-
-/** Deallocates the environment block from the passed PSP segment. */
-static void deallocate_environment(__segment psp)
-{
-	// TODO : Too lazy to make PSP struct;
-	// 0x2C is offsetof the environment block field on the PSP
-	uint16_t __far *envblockP = (uint16_t __far *) MK_FP(psp, 0x2C);
-	dos_free(*envblockP);
-	*envblockP = 0;
-}
-
-/** Copies a program to another location.
- *  @param new_seg PSP segment for the new location
- *  @param old_seg PSP segment for the old location
- *  @param size size of the program to copy including PSP size. */
-static void copy_program(__segment new_seg, __segment old_seg, unsigned size)
-{
-	// The MCB is always 1 segment before.
-	uint8_t __far *new_mcb = MK_FP(new_seg - 1, 0);
-	uint8_t __far *old_mcb = MK_FP(old_seg - 1, 0);
-	uint16_t __far *new_mcb_owner = (uint16_t __far *) &new_mcb[1];
-	char __far *new_mcb_owner_name = &new_mcb[8];
-	char __far *old_mcb_owner_name = &old_mcb[8];
-
-	// Copy entire resident segment including PSP
-	_fmemcpy(MK_FP(new_seg, 0), MK_FP(old_seg, 0), size);
-
-	// Make the new MCB point to itself as owner
-	*new_mcb_owner = new_seg;
-
-	// Copy the program name, too.
-	_fmemcpy(new_mcb_owner_name, old_mcb_owner_name, 8);
-}
-
-/** Allocates a UMB of the given size.
- *  If no UMBs are available, this may still return a block in conventional memory. */
-static __segment allocate_umb(unsigned size)
-{
-	bool old_umb_link = dos_query_umb_link_state();
-	unsigned int old_strategy = dos_query_allocation_strategy();
-	__segment new_segment;
-
-	dos_set_umb_link_state(true);
-	dos_set_allocation_strategy(DOS_FIT_BEST | DOS_FIT_HIGHONLY);
-
-	new_segment = dos_alloc(get_paragraphs(size));
-
-	dos_set_umb_link_state(old_umb_link);
-	dos_set_allocation_strategy(old_strategy);
-
-	return new_segment;
-}
-
-static int reallocate_to_umb(LPTSRDATA __far * data)
-{
-	const unsigned int resident_size = get_resident_program_size();
-	LPTSRDATA old_data = *data;
-	__segment old_psp_segment = FP_SEG(old_data) - (DOS_PSP_SIZE/16);
-	__segment new_psp_segment;
-
-	deallocate_environment(_psp);
-
-	// If we are already in UMA, don't bother
-	if (old_psp_segment >= 0xA000) {
-		return -1;
-	}
-
-	new_psp_segment = allocate_umb(resident_size);
-
-	if (new_psp_segment && new_psp_segment >= 0xA000) {
-		__segment new_segment = new_psp_segment + (DOS_PSP_SIZE/16);
-		printf("Moving to upper memory\n");
-
-		// Create a new program instance including PSP at the new_segment
-		copy_program(new_psp_segment, old_psp_segment, resident_size);
-
-		// Tell DOS to "switch" to the new program
-		dos_set_psp(new_psp_segment);
-
-		// Now update the data pointer to the new segment
-		*data = MK_FP(new_segment, FP_OFF(old_data));
-
+	if (umb_seg) {
+		// Update the data pointer with the new segment
+		*data = MK_FP(umb_seg, FP_OFF(*data));
 		return 0;
 	} else {
-		printf("No upper memory available\n");
-		if (new_psp_segment) {
-			// In case we got another low-memory segment...
-			dos_free(new_psp_segment);
-		}
-
 		return -1;
 	}
 }
@@ -562,7 +472,7 @@ int main(int argc, const char *argv[])
 
 		data = get_tsr_data(false);
 		if (high) {
-			err = reallocate_to_umb(&data);
+			err = move_driver_to_umb(&data);
 			if (err) high = false; // Not fatal
 		} else {
 			deallocate_environment(_psp);

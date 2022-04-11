@@ -1,5 +1,5 @@
 system windows_dll
-option map=w16mouse.map
+option map=mousew16.map
 option modname=MOUSE   # This is necessary; USER.EXE imports mouse functions using this module name
 option description 'VirtualBox Mouse driver'
 

@@ -1,5 +1,5 @@
 system dos
-option map=vbmouse.map
+option map=vbsf.map
 # Put the resident text & data first, then the rest of standard classses
 order clname RES_CODE
       clname FAR_DATA

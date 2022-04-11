@@ -22,9 +22,10 @@
 #include <stdint.h>
 #include <i86.h>
 
+#include "dlog.h"
+#include "utils.h"
 #include "pci.h"
 #include "vds.h"
-#include "dlog.h"
 #include "vboxdev.h"
 #include "vbox.h"
 
@@ -103,7 +104,7 @@ int vbox_init_buffer(LPVBOXCOMM vb)
 		vb->dds.offset = FP_OFF(&vb->buf);
 		vb->dds.bufferId = 0;
 
-		vb->dds.physicalAddress = vds_ptr_to_linear(&vb->buf);
+		vb->dds.physicalAddress = linear_addr(&vb->buf);
 	}
 
 	return 0;

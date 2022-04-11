@@ -20,10 +20,49 @@
 #ifndef INT21DOS_H
 #define INT21DOS_H
 
+#include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <dos.h>
+#include "utils.h"
 
 #define DOS_PSP_SIZE 256
+
+enum dos_error {
+	DOS_ERROR_SUCCESS = 0,
+	DOS_ERROR_INVALID_FUNCTION = 1,
+	DOS_ERROR_FILE_NOT_FOUND = 2,
+	DOS_ERROR_PATH_NOT_FOUND = 3,
+	DOS_ERROR_ERROR_TOO_MANY_OPEN_FILES = 4,
+	DOS_ERROR_ACCESS_DENIED = 5,
+	DOS_ERROR_INVALID_HANDLE = 6,
+	DOS_ERROR_ARENA_TRASHED = 7,
+	DOS_ERROR_NOT_ENOUGH_MEMORY = 8,
+	DOS_ERROR_INVALID_BLOCK = 9,
+	DOS_ERROR_BAD_ENVIRONMENT = 10,
+	DOS_ERROR_BAD_FORMAT = 11,
+	DOS_ERROR_INVALID_ACCESS = 12,
+	DOS_ERROR_INVALID_DATA = 13,
+	DOS_ERROR_OUT_OF_MEMORY = 14,
+	DOS_ERROR_INVALID_DRIVE = 15,
+	DOS_ERROR_CURRENT_DIRECTORY = 16,
+	DOS_ERROR_OT_SAME_DEVICE = 17,
+	DOS_ERROR_NO_MORE_FILES = 18,
+	DOS_ERROR_WRITE_PROTECT = 19,
+	DOS_ERROR_BAD_UNIT = 20,
+	DOS_ERROR_NOT_READY = 21,
+	DOS_ERROR_BAD_COMMAND = 22,
+	DOS_ERROR_CRC = 23,
+	DOS_ERROR_BAD_LENGTH = 24,
+	DOS_ERROR_SEEK = 25,
+	DOS_ERROR_NOT_DOS_DISK = 26,
+	DOS_ERROR_SECTOR_NOT_FOUND = 27,
+
+	DOS_ERROR_GEN_FAILURE = 31,
+
+	DOS_ERROR_HANDLE_EOF = 38,
+	DOS_ERROR_HANDLE_DISK_FULL = 39,
+};
 
 enum dos_allocation_strategy {
 	DOS_FIT_FIRST    = 0,
@@ -33,6 +72,14 @@ enum dos_allocation_strategy {
 	DOS_FIT_HIGH     = 0x80,
 	DOS_FIT_HIGHONLY = 0x40,
 };
+
+typedef __segment segment_t;
+
+/** Converts bytes to paragraphs (16 bytes), rounding up. */
+static inline unsigned get_paragraphs(unsigned bytes)
+{
+	return (bytes + 15) / 16;
+}
 
 static unsigned dos_query_allocation_strategy(void);
 #pragma aux dos_query_allocation_strategy = \
@@ -82,7 +129,7 @@ static __segment dos_alloc(unsigned paragraphs);
 	__value [ax]
 
 /** Frees DOS segment. */
-static void dos_free(_segment segment);
+static void dos_free(segment_t segment);
 #pragma aux dos_free = \
 	"mov ah, 0x49" \
 	"int 0x21" \
@@ -90,11 +137,207 @@ static void dos_free(_segment segment);
 	__modify [ax]
 
 /** Sets a given PSP as the current active process. */
-static void dos_set_psp(_segment psp);
+static void dos_set_psp(segment_t psp);
 #pragma aux dos_set_psp = \
 	"mov ah, 0x50" \
 	"int 0x21" \
 	__parm [bx] \
 	__modify [ax]
+
+// Internal DOS structures
+
+// For documentation of these, better grab "Undocumented DOS" or similar book
+// These are probably valid only on DOS >= 4
+
+typedef _Packed struct dos_current_directory_structure {
+	char curr_path[67];
+	uint16_t flags;
+	uint32_t disk_blk;
+	void __far * info;
+	char pad1[11];
+} DOSCDS;
+STATIC_ASSERT(sizeof(DOSCDS) == 88);
+
+enum dos_cds_flags {
+	DOS_CDS_FLAG_PHYSICAL = 0x4000,
+	DOS_CDS_FLAG_NETWORK = 0x8000
+};
+
+typedef _Packed struct dos_system_file_table_entry {
+	uint16_t num_handles;
+	uint16_t open_mode;
+	uint8_t attr;
+	uint16_t dev_info;
+	void __far *dpb;
+	uint16_t start_cluster;
+	uint16_t f_time;
+	uint16_t f_date;
+	uint32_t f_size;
+	uint32_t f_pos;
+	uint16_t last_rel_cluster;
+	uint16_t last_abs_cluster;
+	uint16_t dir_sector;
+	uint8_t dir_entry;
+	char filename[11];
+} DOSSFT;
+STATIC_ASSERT(sizeof(DOSSFT) == 43);
+
+typedef _Packed struct dos_search_data_block {
+	char drive_letter;
+	char search_templ[11];
+	uint8_t search_attr;
+	uint16_t dir_entry;
+	uint16_t par_clstr;
+	char pad1[4];
+} DOSSDB;
+STATIC_ASSERT(sizeof(DOSSDB) == 21);
+
+typedef _Packed struct dos_direntry {
+	char filename[11];
+	uint8_t attr;
+	char pad1[10];
+	uint16_t f_time;
+	uint16_t f_date;
+	uint16_t start_cluster;
+	uint32_t f_size;
+} DOSDIR;
+STATIC_ASSERT(sizeof(DOSDIR) == 32);
+
+typedef _Packed struct dos_swappable_area {
+	uint8_t criterr;
+	uint8_t indos;
+	uint8_t drive_num;
+	uint8_t lasterr_dum[9];
+	uint8_t __far *cur_dta;
+	uint16_t cur_psp;
+	uint8_t pad1[4];
+	uint8_t cur_drive;
+	uint8_t pad2[135];
+	char fn1[128];
+	char fn2[128];
+	DOSSDB sdb;
+	DOSDIR found_file;
+	DOSCDS drive_cdscopy;
+	uint8_t fcb_fn1[11];
+	uint8_t pad3[1];
+	uint8_t fcb_fn2[11];
+	uint8_t pad4[11];
+	uint8_t search_attr;
+	uint8_t open_mode;
+	uint8_t pad5[51];
+	DOSCDS __far *drive_cds;
+	uint8_t pad6[12];
+	uint16_t fn1_csoffset;
+	uint16_t fn2_csoffset;
+	uint8_t pad7[71];
+	uint16_t openex_act;
+	uint16_t openex_attr;
+	uint16_t openex_mode;
+	uint8_t pad8[29];
+	DOSSDB rename_srcfile;
+	DOSDIR rename_file;
+} DOSSDA;
+STATIC_ASSERT(offsetof(DOSSDA, cur_dta) == 0xC);
+STATIC_ASSERT(offsetof(DOSSDA, cur_drive) == 0x16);
+STATIC_ASSERT(offsetof(DOSSDA, fn1) == 0x9E);
+STATIC_ASSERT(offsetof(DOSSDA, fn2) == 0x11E);
+STATIC_ASSERT(offsetof(DOSSDA, sdb) == 0x19E);
+STATIC_ASSERT(offsetof(DOSSDA, found_file) == 0x1B3);
+STATIC_ASSERT(offsetof(DOSSDA, search_attr) == 0x24D);
+STATIC_ASSERT(offsetof(DOSSDA, open_mode) == 0x24E);
+STATIC_ASSERT(offsetof(DOSSDA, drive_cds) == 0x282);
+STATIC_ASSERT(offsetof(DOSSDA, openex_act) == 0x2DD);
+STATIC_ASSERT(offsetof(DOSSDA, openex_mode) == 0x2E1);
+
+typedef _Packed struct dos_list_of_lists {
+	char pad1[22];
+	DOSCDS __far *cds;
+	char pad2[7];
+	uint8_t last_drive;
+} DOSLOL;
+
+static inline int drive_letter_to_index(char letter)
+{
+	if (letter >= 'A' && letter <= 'Z') return letter - 'A';
+	else if (letter >= 'a' && letter <= 'z') return letter - 'a';
+	else return -1;
+}
+
+static inline char drive_index_to_letter(int index)
+{
+	return 'A' + index;
+}
+
+static inline DOSSDA __far * dos_get_swappable_dos_area(void);
+#pragma aux dos_get_swappable_dos_area = \
+	"push ds" \
+	"mov ax, 0x5D06" \
+	"int 0x21" \
+	"jnc success" \
+	"xor si, si" \
+	"mov es, si" \
+	"jmp end" \
+	"success: mov ax, ds" \
+	"mov es, ax" \
+	"end: pop ds" \
+	__value [es si] \
+	__modify [ax cx dx]
+
+static inline DOSLOL __far * dos_get_list_of_lists(void);
+#pragma aux dos_get_list_of_lists = \
+	"mov ax, 0x5200" \
+	"int 0x21" \
+	__value [es bx] \
+	__modify [ax]
+
+// Network redirector interface
+
+enum DOS_REDIR_SUBFUNCTION {
+	DOS_FN_RMDIR     = 0x01,
+	DOS_FN_MKDIR     = 0x03,
+	DOS_FN_CHDIR     = 0x05,
+	DOS_FN_CLOSE     = 0x06,
+	DOS_FN_COMMIT    = 0x07,
+	DOS_FN_READ      = 0x08,
+	DOS_FN_WRITE     = 0x09,
+	DOS_FN_LOCK      = 0x0A,
+	DOS_FN_UNLOCK    = 0x0B,
+	DOS_FN_GET_DISK_FREE = 0x0C,
+	DOS_FN_SET_FILE_ATTR = 0x0E,
+	DOS_FN_GET_FILE_ATTR = 0x0F,
+	DOS_FN_RENAME    = 0x11,
+	DOS_FN_DELETE    = 0x13,
+	DOS_FN_OPEN      = 0x16,
+	DOS_FN_CREATE    = 0x17,
+	DOS_FN_FIND_FIRST = 0x1B,
+	DOS_FN_FIND_NEXT  = 0x1C,
+	DOS_FN_CLOSE_ALL  = 0x1D,
+	DOS_FN_DO_REDIR   = 0x1E,
+	DOS_FN_PRINTSETUP = 0x1F,
+	DOS_FN_FLUSH      = 0x20,
+	DOS_FN_SEEK_END   = 0x21,
+	DOS_FN_QUALIFY    = 0x23,
+	DOS_FN_OPEN_EX    = 0x2E
+};
+
+enum OPENEX_ACTIONS {
+	OPENEX_FAIL_IF_EXISTS     = 0x0000,
+	OPENEX_OPEN_IF_EXISTS     = 0x0001,
+	OPENEX_REPLACE_IF_EXISTS  = 0x0002,
+	OPENEX_FAIL_IF_NEW        = 0x0000,
+	OPENEX_CREATE_IF_NEW      = 0x0100,
+};
+
+enum OPENEX_MODE {
+	OPENEX_MODE_READ   = 0,
+	OPENEX_MODE_WRITE  = 1,
+	OPENEX_MODE_RDWR   = 2
+};
+
+enum OPENEX_RESULT {
+	OPENEX_FILE_OPENED        = 1,
+	OPENEX_FILE_CREATED       = 2,
+	OPENEX_FILE_REPLACED      = 3,
+};
 
 #endif // INT21DOS_H

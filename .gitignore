@@ -1,6 +1,7 @@
 vbmouse.drv
 vbmouse.exe
 vbmouse.flp
+vbsf.exe
 *.o
 *.obj
 *.map

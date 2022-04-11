@@ -2,6 +2,9 @@
 #define UTILS_H
 
 #include <stdint.h>
+#include <i86.h>
+
+#define STATIC_ASSERT(expr)           typedef int STATIC_ASSERT_FAILED[(expr) ? 1 : -1]
 
 #define MIN(a,b)  (((a) < (b)) ? (a) : (b))
 #define MAX(a,b)  (((a) > (b)) ? (a) : (b))
@@ -16,6 +19,13 @@ static inline __segment get_cs(void);
 
 static inline __segment get_ds(void);
 #pragma aux get_ds = "mov ax, ds" value [ax] modify exact [];
+
+/** Converts a far pointer into equivalent linear address.
+ *  Note that under protected mode linear != physical (for that, need VDS). */
+static inline uint32_t linear_addr(const void __far * ptr)
+{
+	return ((uint32_t)(FP_SEG(ptr)) << 4) + FP_OFF(ptr);
+}
 
 /** Map x linearly from range [0, srcmax] to [0, dstmax].
  *  Equivalent of (x * dstmax) / srcmax but with 32-bit unsigned precision. */

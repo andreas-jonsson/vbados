@@ -31,8 +31,99 @@
 
 /* Basic defines required for interoperability with VirtualBox's VMM device */
 
-#define AssertCompileSize(type, size) /**/
+#pragma pack(push,4)
+
+#define AssertCompile(expr)           typedef int STATIC_ASSERT_FAILED[(expr) ? 1 : -1]
+#define AssertCompileSize(type, size) AssertCompile(sizeof(type) == size)
+
 #define RT_BIT(bit)                             ( 1U << (bit) )
+
+#define VINF_SUCCESS                        0
+
+/** General failure - DON'T USE THIS!!! */
+#define VERR_GENERAL_FAILURE                (-1)
+/** Invalid parameter. */
+#define VERR_INVALID_PARAMETER              (-2)
+/** Invalid parameter. */
+#define VWRN_INVALID_PARAMETER              2
+/** Invalid magic or cookie. */
+#define VERR_INVALID_MAGIC                  (-3)
+/** Invalid magic or cookie. */
+#define VWRN_INVALID_MAGIC                  3
+/** Invalid loader handle. */
+#define VERR_INVALID_HANDLE                 (-4)
+/** Invalid loader handle. */
+#define VWRN_INVALID_HANDLE                 4
+
+#define VERR_FILE_IO_ERROR                  (-100)
+/** File/Device open failed. */
+#define VERR_OPEN_FAILED                    (-101)
+/** File not found. */
+#define VERR_FILE_NOT_FOUND                 (-102)
+/** Path not found. */
+#define VERR_PATH_NOT_FOUND                 (-103)
+/** Invalid (malformed) file/path name. */
+#define VERR_INVALID_NAME                   (-104)
+/** The object in question already exists. */
+#define VERR_ALREADY_EXISTS                 (-105)
+/** The object in question already exists. */
+#define VWRN_ALREADY_EXISTS                 105
+/** Too many open files. */
+#define VERR_TOO_MANY_OPEN_FILES            (-106)
+/** Seek error. */
+#define VERR_SEEK                           (-107)
+
+/** @name Generic Directory Enumeration Status Codes
+ * @{
+ */
+/** Unresolved (unknown) search error. */
+#define VERR_SEARCH_ERROR                   (-200)
+/** No more files found. */
+#define VERR_NO_MORE_FILES                  (-201)
+/** No more search handles available. */
+#define VERR_NO_MORE_SEARCH_HANDLES         (-202)
+/** RTDirReadEx() failed to retrieve the extra data which was requested. */
+#define VWRN_NO_DIRENT_INFO                 203
+/** @} */
+
+/** Unresolved (unknown) device i/o error. */
+#define VERR_DEV_IO_ERROR                   (-250)
+/** Device i/o: Bad unit. */
+#define VERR_IO_BAD_UNIT                    (-251)
+/** Device i/o: Not ready. */
+#define VERR_IO_NOT_READY                   (-252)
+/** Device i/o: Bad command. */
+#define VERR_IO_BAD_COMMAND                 (-253)
+/** Device i/o: CRC error. */
+#define VERR_IO_CRC                         (-254)
+/** Device i/o: Bad length. */
+#define VERR_IO_BAD_LENGTH                  (-255)
+/** Device i/o: Sector not found. */
+#define VERR_IO_SECTOR_NOT_FOUND            (-256)
+/** Device i/o: General failure. */
+#define VERR_IO_GEN_FAILURE                 (-257)
+
+/** Requested service does not exist. */
+#define VERR_HGCM_SERVICE_NOT_FOUND                 (-2900)
+/** Service rejected client connection */
+#define VINF_HGCM_CLIENT_REJECTED                   2901
+/** Command address is invalid. */
+#define VERR_HGCM_INVALID_CMD_ADDRESS               (-2902)
+/** Service will execute the command in background. */
+#define VINF_HGCM_ASYNC_EXECUTE                     2903
+/** HGCM could not perform requested operation because of an internal error. */
+#define VERR_HGCM_INTERNAL                          (-2904)
+/** Invalid HGCM client id. */
+#define VERR_HGCM_INVALID_CLIENT_ID                 (-2905)
+/** The HGCM is saving state. */
+#define VINF_HGCM_SAVE_STATE                        (2906)
+/** Requested service already exists. */
+#define VERR_HGCM_SERVICE_EXISTS                    (-2907)
+/** Too many clients for the service. */
+#define VERR_HGCM_TOO_MANY_CLIENTS                  (-2908)
+/** Too many calls to the service from a client. */
+#define VERR_HGCM_TOO_MANY_CLIENT_CALLS             (-2909)
+
 
 #define VMMDEV_VERSION                      0x00010004UL
 
@@ -255,6 +346,12 @@ typedef enum VMMDevRequestType
     VMMDevReq_ReportGuestInfo2           = 58, /**< @since version 3.2.0 */
     VMMDevReq_ReportGuestStatus          = 59, /**< @since version 3.2.8 */
     VMMDevReq_ReportGuestUserState       = 74, /**< @since version 4.3 */
+
+	VMMDevReq_HGCMConnect                = 60,
+	VMMDevReq_HGCMDisconnect             = 61,
+	VMMDevReq_HGCMCall32                 = 62,
+	VMMDevReq_HGCMCall64                 = 63,
+
     VMMDevReq_SizeHack                   = 0x7fffffff
 } VMMDevRequestType;
 
@@ -504,5 +601,744 @@ typedef struct VBoxGuestInfo2
     char     szName[128];
 } VBoxGuestInfo2;
 AssertCompileSize(VBoxGuestInfo2, 144);
+
+/**
+ * Idle request structure.
+ *
+ * Used by VMMDevReq_Idle.
+ */
+typedef struct
+{
+	/** Header. */
+	VMMDevRequestHeader header;
+} VMMDevReqIdle;
+AssertCompileSize(VMMDevReqIdle, 24);
+
+// HGCM
+
+typedef uint32_t                RTGCPHYS32;
+typedef uint32_t                RTGCPTR32;
+typedef uint64_t                RTGCPHYS64;
+
+/**
+ * HGCM service location types.
+ * @ingroup grp_vmmdev_req
+ */
+typedef enum
+{
+	VMMDevHGCMLoc_Invalid    = 0,
+	VMMDevHGCMLoc_LocalHost  = 1,
+	VMMDevHGCMLoc_LocalHost_Existing = 2,
+	VMMDevHGCMLoc_SizeHack   = 0x7fffffff
+} HGCMServiceLocationType;
+AssertCompileSize(HGCMServiceLocationType, 4);
+
+/**
+ * HGCM host service location.
+ * @ingroup grp_vmmdev_req
+ */
+typedef struct
+{
+	char achName[128]; /**< This is really szName. */
+} HGCMServiceLocationHost;
+AssertCompileSize(HGCMServiceLocationHost, 128);
+
+/**
+ * HGCM service location.
+ * @ingroup grp_vmmdev_req
+ */
+typedef struct HGCMSERVICELOCATION
+{
+	/** Type of the location. */
+	HGCMServiceLocationType type;
+
+	union
+	{
+		HGCMServiceLocationHost host;
+	} u;
+} HGCMServiceLocation;
+AssertCompileSize(HGCMServiceLocation, 128+4);
+
+
+/**
+ * HGCM parameter type.
+ */
+typedef enum
+{
+	VMMDevHGCMParmType_Invalid            = 0,
+	VMMDevHGCMParmType_32bit              = 1,
+	VMMDevHGCMParmType_64bit              = 2,
+	VMMDevHGCMParmType_PhysAddr           = 3,  /**< @deprecated Doesn't work, use PageList. */
+	VMMDevHGCMParmType_LinAddr            = 4,  /**< In and Out */
+	VMMDevHGCMParmType_LinAddr_In         = 5,  /**< In  (read;  host<-guest) */
+	VMMDevHGCMParmType_LinAddr_Out        = 6,  /**< Out (write; host->guest) */
+	VMMDevHGCMParmType_LinAddr_Locked     = 7,  /**< Locked In and Out - for VBoxGuest, not host. */
+	VMMDevHGCMParmType_LinAddr_Locked_In  = 8,  /**< Locked In  (read;  host<-guest) - for VBoxGuest, not host. */
+	VMMDevHGCMParmType_LinAddr_Locked_Out = 9,  /**< Locked Out (write; host->guest) - for VBoxGuest, not host. */
+	VMMDevHGCMParmType_PageList           = 10, /**< Physical addresses of locked pages for a buffer. */
+	VMMDevHGCMParmType_Embedded           = 11, /**< Small buffer embedded in request. */
+	VMMDevHGCMParmType_ContiguousPageList = 12, /**< Like PageList but with physically contiguous memory, so only one page entry. */
+	VMMDevHGCMParmType_NoBouncePageList   = 13, /**< Like PageList but host function requires no bounce buffering. */
+	VMMDevHGCMParmType_SizeHack           = 0x7fffffff
+} HGCMFunctionParameterType;
+AssertCompileSize(HGCMFunctionParameterType, 4);
+
+typedef struct
+{
+	HGCMFunctionParameterType type;
+	union
+	{
+		uint32_t   value32;
+		uint64_t   value64;
+		struct
+		{
+			uint32_t size;
+
+			union
+			{
+				RTGCPHYS32 physAddr;
+				RTGCPTR32  linearAddr;
+			} u;
+		} Pointer;
+		struct
+		{
+			uint32_t  cb;
+			RTGCPTR32 uAddr;
+		} LinAddr;                      /**< Shorter version of the above Pointer structure. */
+		struct
+		{
+			uint32_t size;              /**< Size of the buffer described by the page list. */
+			uint32_t offset;            /**< Relative to the request header, valid if size != 0. */
+		} PageList;
+		struct
+		{
+			uint32_t fFlags : 8;        /**< VBOX_HGCM_F_PARM_*. */
+			uint32_t offData : 24;      /**< Relative to the request header (must be a valid offset even if cbData is zero). */
+			uint32_t cbData;            /**< The buffer size. */
+		} Embedded;
+	} u;
+} HGCMFunctionParameter;
+AssertCompileSize(HGCMFunctionParameter, 4+8);
+
+#define VBOX_HGCM_REQ_DONE      0x1
+#define VBOX_HGCM_REQ_CANCELLED 0x2
+
+/**
+ * HGCM request header.
+ */
+typedef struct VMMDevHGCMRequestHeader
+{
+	/** Request header. */
+	VMMDevRequestHeader header;
+
+	/** HGCM flags. */
+	uint32_t fu32Flags;
+
+	/** Result code. */
+	int32_t result;
+} VMMDevHGCMRequestHeader;
+AssertCompileSize(VMMDevHGCMRequestHeader, 24+8);
+
+/**
+ * HGCM connect request structure.
+ *
+ * Used by VMMDevReq_HGCMConnect.
+ */
+typedef struct
+{
+	/** HGCM request header. */
+	VMMDevHGCMRequestHeader header;
+
+	/** IN: Description of service to connect to. */
+	HGCMServiceLocation loc;
+
+	/** OUT: Client identifier assigned by local instance of HGCM. */
+	uint32_t u32ClientID;
+} VMMDevHGCMConnect;
+AssertCompileSize(VMMDevHGCMConnect, 32+132+4);
+
+/**
+ * HGCM disconnect request structure.
+ *
+ * Used by VMMDevReq_HGCMDisconnect.
+ */
+typedef struct
+{
+	/** HGCM request header. */
+	VMMDevHGCMRequestHeader header;
+
+	/** IN: Client identifier. */
+	uint32_t u32ClientID;
+} VMMDevHGCMDisconnect;
+AssertCompileSize(VMMDevHGCMDisconnect, 32+4);
+
+/**
+ * HGCM call request structure.
+ *
+ * Used by VMMDevReq_HGCMCall32 and VMMDevReq_HGCMCall64.
+ */
+typedef struct
+{
+	/* request header */
+	VMMDevHGCMRequestHeader header;
+
+	/** IN: Client identifier. */
+	uint32_t u32ClientID;
+	/** IN: Service function number. */
+	uint32_t u32Function;
+	/** IN: Number of parameters. */
+	uint32_t cParms;
+	/** Parameters follow in form: HGCMFunctionParameter aParms[X]; */
+	HGCMFunctionParameter aParms[];
+} VMMDevHGCMCall;
+AssertCompileSize(VMMDevHGCMCall, 32+12);
+
+/** @name Direction of data transfer (HGCMPageListInfo::flags). Bit flags.
+ * @{ */
+#define VBOX_HGCM_F_PARM_DIRECTION_NONE      0x00000000UL
+#define VBOX_HGCM_F_PARM_DIRECTION_TO_HOST   0x00000001UL
+#define VBOX_HGCM_F_PARM_DIRECTION_FROM_HOST 0x00000002UL
+#define VBOX_HGCM_F_PARM_DIRECTION_BOTH      0x00000003UL
+#define VBOX_HGCM_F_PARM_DIRECTION_MASK      0x00000003UL
+/** Macro for validating that the specified flags are valid. */
+#define VBOX_HGCM_F_PARM_ARE_VALID(fFlags) \
+	(   ((fFlags) & VBOX_HGCM_F_PARM_DIRECTION_MASK) \
+	 && !((fFlags) & ~VBOX_HGCM_F_PARM_DIRECTION_MASK) )
+/** @} */
+
+/**
+ * VMMDevHGCMParmType_PageList points to this structure to actually describe the
+ * buffer.
+ */
+typedef struct
+{
+	uint32_t flags;        /**< VBOX_HGCM_F_PARM_*. */
+	uint16_t offFirstPage; /**< Offset in the first page where data begins. */
+	uint16_t cPages;       /**< Number of pages. */
+	RTGCPHYS64 aPages[1];  /**< Page addresses. */
+} HGCMPageListInfo;
+AssertCompileSize(HGCMPageListInfo, 4+2+2+8);
+
+# define VBOX_HGCM_MAX_PARMS 32
+
+/**
+ * HGCM cancel request structure.
+ *
+ * The Cancel request is issued using the same physical memory address as was
+ * used for the corresponding initial HGCMCall.
+ *
+ * Used by VMMDevReq_HGCMCancel.
+ */
+typedef struct
+{
+	/** Header. */
+	VMMDevHGCMRequestHeader header;
+} VMMDevHGCMCancel;
+AssertCompileSize(VMMDevHGCMCancel, 32);
+
+
+// SHARED FOLDERS (shfl)
+
+/** @name Shared Folders service functions. (guest)
+ * @{
+ */
+/** Query mappings changes.
+ * @note Description is currently misleading, it will always return all
+ *       current mappings with SHFL_MS_NEW status.  Only modification is the
+ *       SHFL_MF_AUTOMOUNT flag that causes filtering out non-auto mounts. */
+#define SHFL_FN_QUERY_MAPPINGS      (1)
+/** Query the name of a map. */
+#define SHFL_FN_QUERY_MAP_NAME      (2)
+/** Open/create object. */
+#define SHFL_FN_CREATE              (3)
+/** Close object handle. */
+#define SHFL_FN_CLOSE               (4)
+/** Read object content. */
+#define SHFL_FN_READ                (5)
+/** Write new object content. */
+#define SHFL_FN_WRITE               (6)
+/** Lock/unlock a range in the object. */
+#define SHFL_FN_LOCK                (7)
+/** List object content. */
+#define SHFL_FN_LIST                (8)
+/** Query/set object information. */
+#define SHFL_FN_INFORMATION         (9)
+/** Remove object */
+#define SHFL_FN_REMOVE              (11)
+/** Map folder (legacy) */
+#define SHFL_FN_MAP_FOLDER_OLD      (12)
+/** Unmap folder */
+#define SHFL_FN_UNMAP_FOLDER        (13)
+/** Rename object (possibly moving it to another directory) */
+#define SHFL_FN_RENAME              (14)
+/** Flush file */
+#define SHFL_FN_FLUSH               (15)
+/** @todo macl, a description, please. */
+#define SHFL_FN_SET_UTF8            (16)
+/** Map folder */
+#define SHFL_FN_MAP_FOLDER          (17)
+/** Read symlink destination.
+ * @since VBox 4.0  */
+#define SHFL_FN_READLINK            (18) /**< @todo rename to SHFL_FN_READ_LINK (see struct capitalization) */
+/** Create symlink.
+ * @since VBox 4.0  */
+#define SHFL_FN_SYMLINK             (19)
+/** Ask host to show symlinks
+ * @since VBox 4.0  */
+#define SHFL_FN_SET_SYMLINKS        (20)
+/** Query information about a map.
+ * @since VBox 6.0  */
+#define SHFL_FN_QUERY_MAP_INFO      (21)
+/** Wait for changes to the mappings.
+ * @since VBox 6.0  */
+#define SHFL_FN_WAIT_FOR_MAPPINGS_CHANGES       (22)
+/** Cancel all waits for changes to the mappings for the calling client.
+ * The wait calls will return VERR_CANCELLED.
+ * @since VBox 6.0  */
+#define SHFL_FN_CANCEL_MAPPINGS_CHANGES_WAITS   (23)
+/** Sets the file size.
+ * @since VBox 6.0  */
+#define SHFL_FN_SET_FILE_SIZE       (24)
+/** Queries supported features.
+ * @since VBox 6.0.6  */
+#define SHFL_FN_QUERY_FEATURES      (25)
+/** Copies a file to another.
+ * @since VBox 6.0.6  */
+#define SHFL_FN_COPY_FILE           (26)
+/** Copies part of a file to another.
+ * @since VBox 6.0.6  */
+#define SHFL_FN_COPY_FILE_PART      (27)
+/** Close handle to (optional) and remove object by path.
+ * This function is tailored for Windows guests.
+ * @since VBox 6.0.8  */
+#define SHFL_FN_CLOSE_AND_REMOVE    (28)
+/** Set the host error code style.
+ * This is for more efficiently getting the correct error status when the host
+ * and guest OS types differs and it won't happen naturally.
+ * @since VBox 6.0.10  */
+#define SHFL_FN_SET_ERROR_STYLE     (29)
+/** The last function number. */
+#define SHFL_FN_LAST                SHFL_FN_SET_ERROR_STYLE
+/** @} */
+
+
+/** @name Shared Folders service functions. (host)
+ * @{
+ */
+/** Add shared folder mapping. */
+#define SHFL_FN_ADD_MAPPING         (1)
+/** Remove shared folder mapping. */
+#define SHFL_FN_REMOVE_MAPPING      (2)
+/** Set the led status light address. */
+#define SHFL_FN_SET_STATUS_LED      (3)
+/** Allow the guest to create symbolic links
+ * @since VBox 4.0  */
+#define SHFL_FN_ALLOW_SYMLINKS_CREATE (4)
+/** @} */
+
+/** Root handle for a mapping. Root handles are unique.
+ *
+ * @note Function parameters structures consider the root handle as 32 bit
+ *       value. If the typedef will be changed, then function parameters must be
+ *       changed accordingly. All those parameters are marked with SHFLROOT in
+ *       comments.
+ */
+typedef uint32_t SHFLROOT;
+
+/** NIL shared folder root handle. */
+#define SHFL_ROOT_NIL ((SHFLROOT)~0)
+
+
+/** A shared folders handle for an opened object. */
+typedef uint64_t SHFLHANDLE;
+
+#define SHFL_HANDLE_NIL  ((SHFLHANDLE)~0LL)
+#define SHFL_HANDLE_ROOT ((SHFLHANDLE)0LL)
+
+/** Hardcoded maximum length (in chars) of a shared folder name. */
+#define SHFL_MAX_LEN         (256)
+/** Hardcoded maximum number of shared folder mapping available to the guest. */
+#define SHFL_MAX_MAPPINGS    (64)
+
+/**
+ * Shared folder string buffer structure.
+ */
+typedef struct _SHFLSTRING
+{
+	/** Allocated size of the String member in bytes. */
+	uint16_t u16Size;
+
+	/** Length of string without trailing nul in bytes. */
+	uint16_t u16Length;
+
+	/** UTF-8 or UTF-16 string. Nul terminated. */
+	char ach[];
+} SHFLSTRING;
+AssertCompileSize(SHFLSTRING, 4);
+
+/**
+ * The available additional information in a SHFLFSOBJATTR object.
+ */
+typedef enum SHFLFSOBJATTRADD
+{
+	/** No additional information is available / requested. */
+	SHFLFSOBJATTRADD_NOTHING = 1,
+	/** The additional unix attributes (SHFLFSOBJATTR::u::Unix) are
+	 *  available / requested. */
+	SHFLFSOBJATTRADD_UNIX,
+	/** The additional extended attribute size (SHFLFSOBJATTR::u::EASize) is
+	 *  available / requested. */
+	SHFLFSOBJATTRADD_EASIZE,
+	/** The last valid item (inclusive).
+	 * The valid range is SHFLFSOBJATTRADD_NOTHING thru
+	 * SHFLFSOBJATTRADD_LAST. */
+	SHFLFSOBJATTRADD_LAST = SHFLFSOBJATTRADD_EASIZE,
+
+	/** The usual 32-bit hack. */
+	SHFLFSOBJATTRADD_32BIT_SIZE_HACK = 0x7fffffff
+} SHFLFSOBJATTRADD;
+
+
+/* Assert sizes of the IRPT types we're using below. */
+//AssertCompileSize(RTFMODE,      4);
+//AssertCompileSize(RTFOFF,       8);
+//AssertCompileSize(RTINODE,      8);
+//AssertCompileSize(RTTIMESPEC,   8);
+//AssertCompileSize(RTDEV,        4);
+//AssertCompileSize(RTUID,        4);
+
+/**
+ * Shared folder filesystem object attributes.
+ */
+#pragma pack(push, 1)
+typedef struct SHFLFSOBJATTR
+{
+	/** Mode flags (st_mode). RTFS_UNIX_*, RTFS_TYPE_*, and RTFS_DOS_*.
+	 * @remarks We depend on a number of RTFS_ defines to remain unchanged.
+	 *          Fortuntately, these are depending on windows, dos and unix
+	 *          standard values, so this shouldn't be much of a pain. */
+	uint32_t          fMode;
+
+	/** The additional attributes available. */
+	SHFLFSOBJATTRADD  enmAdditional;
+
+	/**
+	 * Additional attributes.
+	 *
+	 * Unless explicitly specified to an API, the API can provide additional
+	 * data as it is provided by the underlying OS.
+	 */
+	union SHFLFSOBJATTRUNION
+	{
+		/** Additional Unix Attributes
+		 * These are available when SHFLFSOBJATTRADD is set in fUnix.
+		 */
+		 struct SHFLFSOBJATTRUNIX
+		 {
+			/** The user owning the filesystem object (st_uid).
+			 * This field is ~0U if not supported. */
+			uint32_t        uid;
+
+			/** The group the filesystem object is assigned (st_gid).
+			 * This field is ~0U if not supported. */
+			uint32_t        gid;
+
+			/** Number of hard links to this filesystem object (st_nlink).
+			 * This field is 1 if the filesystem doesn't support hardlinking or
+			 * the information isn't available.
+			 */
+			uint32_t        cHardlinks;
+
+			/** The device number of the device which this filesystem object resides on (st_dev).
+			 * This field is 0 if this information is not available. */
+			uint32_t        INodeIdDevice;
+
+			/** The unique identifier (within the filesystem) of this filesystem object (st_ino).
+			 * Together with INodeIdDevice, this field can be used as a OS wide unique id
+			 * when both their values are not 0.
+			 * This field is 0 if the information is not available. */
+			uint64_t       INodeId;
+
+			/** User flags (st_flags).
+			 * This field is 0 if this information is not available. */
+			uint32_t        fFlags;
+
+			/** The current generation number (st_gen).
+			 * This field is 0 if this information is not available. */
+			uint32_t        GenerationId;
+
+			/** The device number of a character or block device type object (st_rdev).
+			 * This field is 0 if the file isn't of a character or block device type and
+			 * when the OS doesn't subscribe to the major+minor device idenfication scheme. */
+			uint32_t        Device;
+		} Unix;
+
+		/**
+		 * Extended attribute size.
+		 */
+		struct SHFLFSOBJATTREASIZE
+		{
+			/** Size of EAs. */
+			uint64_t        cb;
+		} EASize;
+	} u;
+} SHFLFSOBJATTR;
+#pragma pack (pop)
+AssertCompileSize(SHFLFSOBJATTR, 44);
+/** Pointer to a shared folder filesystem object attributes structure. */
+typedef SHFLFSOBJATTR *PSHFLFSOBJATTR;
+/** Pointer to a const shared folder filesystem object attributes structure. */
+typedef const SHFLFSOBJATTR *PCSHFLFSOBJATTR;
+
+
+/**
+ * Filesystem object information structure.
+ */
+#pragma pack(push, 1)
+typedef struct SHFLFSOBJINFO
+{
+   /** Logical size (st_size).
+	* For normal files this is the size of the file.
+	* For symbolic links, this is the length of the path name contained
+	* in the symbolic link.
+	* For other objects this fields needs to be specified.
+	*/
+   uint64_t     cbObject;
+
+   /** Disk allocation size (st_blocks * DEV_BSIZE). */
+   uint64_t     cbAllocated;
+
+   /** Time of last access (st_atime).
+	* @remarks  Here (and other places) we depend on the IPRT timespec to
+	*           remain unchanged. */
+   uint64_t     AccessTime;
+
+   /** Time of last data modification (st_mtime). */
+   uint64_t     ModificationTime;
+
+   /** Time of last status change (st_ctime).
+	* If not available this is set to ModificationTime.
+	*/
+   uint64_t     ChangeTime;
+
+   /** Time of file birth (st_birthtime).
+	* If not available this is set to ChangeTime.
+	*/
+   uint64_t     BirthTime;
+
+   /** Attributes. */
+   SHFLFSOBJATTR Attr;
+
+} SHFLFSOBJINFO;
+#pragma pack (pop)
+AssertCompileSize(SHFLFSOBJINFO, 92);
+/** Pointer to a shared folder filesystem object information structure. */
+typedef SHFLFSOBJINFO *PSHFLFSOBJINFO;
+/** Pointer to a const shared folder filesystem object information
+ *  structure. */
+typedef const SHFLFSOBJINFO *PCSHFLFSOBJINFO;
+
+
+/** Result of an open/create request.
+ *  Along with handle value the result code
+ *  identifies what has happened while
+ *  trying to open the object.
+ */
+typedef enum _SHFLCREATERESULT
+{
+	SHFL_NO_RESULT,
+	/** Specified path does not exist. */
+	SHFL_PATH_NOT_FOUND,
+	/** Path to file exists, but the last component does not. */
+	SHFL_FILE_NOT_FOUND,
+	/** File already exists and either has been opened or not. */
+	SHFL_FILE_EXISTS,
+	/** New file was created. */
+	SHFL_FILE_CREATED,
+	/** Existing file was replaced or overwritten. */
+	SHFL_FILE_REPLACED,
+	/** Blow the type up to 32-bit. */
+	SHFL_32BIT_HACK = 0x7fffffff
+} SHFLCREATERESULT;
+AssertCompile(SHFL_NO_RESULT == 0);
+AssertCompileSize(SHFLCREATERESULT, 4);
+
+
+/** @name Open/create flags.
+ *  @{
+ */
+
+/** No flags. Initialization value. */
+#define SHFL_CF_NONE                  (0x00000000)
+
+/** Lookup only the object, do not return a handle. All other flags are ignored. */
+#define SHFL_CF_LOOKUP                (0x00000001)
+
+/** Open parent directory of specified object.
+ *  Useful for the corresponding Windows FSD flag
+ *  and for opening paths like \\dir\\*.* to search the 'dir'.
+ *  @todo possibly not needed???
+ */
+#define SHFL_CF_OPEN_TARGET_DIRECTORY (0x00000002)
+
+/** Create/open a directory. */
+#define SHFL_CF_DIRECTORY             (0x00000004)
+
+/** Open/create action to do if object exists
+ *  and if the object does not exists.
+ *  REPLACE file means atomically DELETE and CREATE.
+ *  OVERWRITE file means truncating the file to 0 and
+ *  setting new size.
+ *  When opening an existing directory REPLACE and OVERWRITE
+ *  actions are considered invalid, and cause returning
+ *  FILE_EXISTS with NIL handle.
+ */
+#define SHFL_CF_ACT_MASK_IF_EXISTS      (0x000000F0)
+#define SHFL_CF_ACT_MASK_IF_NEW         (0x00000F00)
+
+/** What to do if object exists. */
+#define SHFL_CF_ACT_OPEN_IF_EXISTS      (0x00000000)
+#define SHFL_CF_ACT_FAIL_IF_EXISTS      (0x00000010)
+#define SHFL_CF_ACT_REPLACE_IF_EXISTS   (0x00000020)
+#define SHFL_CF_ACT_OVERWRITE_IF_EXISTS (0x00000030)
+
+/** What to do if object does not exist. */
+#define SHFL_CF_ACT_CREATE_IF_NEW       (0x00000000)
+#define SHFL_CF_ACT_FAIL_IF_NEW         (0x00000100)
+
+/** Read/write requested access for the object. */
+#define SHFL_CF_ACCESS_MASK_RW          (0x00003000)
+
+/** No access requested. */
+#define SHFL_CF_ACCESS_NONE             (0x00000000)
+/** Read access requested. */
+#define SHFL_CF_ACCESS_READ             (0x00001000)
+/** Write access requested. */
+#define SHFL_CF_ACCESS_WRITE            (0x00002000)
+/** Read/Write access requested. */
+#define SHFL_CF_ACCESS_READWRITE        (SHFL_CF_ACCESS_READ | SHFL_CF_ACCESS_WRITE)
+
+/** Requested share access for the object. */
+#define SHFL_CF_ACCESS_MASK_DENY        (0x0000C000)
+
+/** Allow any access. */
+#define SHFL_CF_ACCESS_DENYNONE         (0x00000000)
+/** Do not allow read. */
+#define SHFL_CF_ACCESS_DENYREAD         (0x00004000)
+/** Do not allow write. */
+#define SHFL_CF_ACCESS_DENYWRITE        (0x00008000)
+/** Do not allow access. */
+#define SHFL_CF_ACCESS_DENYALL          (SHFL_CF_ACCESS_DENYREAD | SHFL_CF_ACCESS_DENYWRITE)
+
+/** Requested access to attributes of the object. */
+#define SHFL_CF_ACCESS_MASK_ATTR        (0x00030000)
+
+/** No access requested. */
+#define SHFL_CF_ACCESS_ATTR_NONE        (0x00000000)
+/** Read access requested. */
+#define SHFL_CF_ACCESS_ATTR_READ        (0x00010000)
+/** Write access requested. */
+#define SHFL_CF_ACCESS_ATTR_WRITE       (0x00020000)
+/** Read/Write access requested. */
+#define SHFL_CF_ACCESS_ATTR_READWRITE   (SHFL_CF_ACCESS_ATTR_READ | SHFL_CF_ACCESS_ATTR_WRITE)
+
+/** The file is opened in append mode. Ignored if SHFL_CF_ACCESS_WRITE is not set. */
+#define SHFL_CF_ACCESS_APPEND           (0x00040000)
+
+/** @} */
+
+#pragma pack(push,1)
+typedef struct _SHFLCREATEPARMS
+{
+	/* Returned handle of opened object. */
+	SHFLHANDLE Handle;
+
+	/* Returned result of the operation */
+	SHFLCREATERESULT Result;
+
+	/* SHFL_CF_* */
+	uint32_t CreateFlags;
+
+	/* Attributes of object to create and
+	 * returned actual attributes of opened/created object.
+	 */
+	SHFLFSOBJINFO Info;
+
+} SHFLCREATEPARMS;
+#pragma pack(pop)
+
+/** @name Shared Folders mappings.
+ * @{
+ */
+
+/** The mapping has been added since last query. */
+#define SHFL_MS_NEW        (1)
+/** The mapping has been deleted since last query. */
+#define SHFL_MS_DELETED    (2)
+
+/** Validation mask.  Needs to be adjusted
+  * whenever a new SHFL_MF_ flag is added. */
+#define SHFL_MF_MASK       (0x00000011)
+/** UTF-16 enconded strings. */
+#define SHFL_MF_UCS2       (0x00000000)
+/** Guest uses UTF8 strings, if not set then the strings are unicode (UCS2). */
+#define SHFL_MF_UTF8       (0x00000001)
+/** Just handle the auto-mounted folders. */
+#define SHFL_MF_AUTOMOUNT  (0x00000010)
+
+typedef struct _SHFLMAPPING
+{
+	/** Mapping status.
+	 * @note Currently always set to SHFL_MS_NEW.  */
+	uint32_t u32Status;
+	/** Root handle. */
+	SHFLROOT root;
+} SHFLMAPPING;
+AssertCompileSize(SHFLMAPPING, 8);
+/** Pointer to a SHFLMAPPING structure. */
+typedef SHFLMAPPING *PSHFLMAPPING;
+
+/** @} */
+
+/** @name Shared Folder directory information
+ * @{
+ */
+
+typedef struct _SHFLDIRINFO
+{
+	/** Full information about the object. */
+	SHFLFSOBJINFO   Info;
+	/** The length of the short field (number of RTUTF16 chars).
+	 * It is 16-bit for reasons of alignment. */
+	uint16_t        cucShortName;
+	/** The short name for 8.3 compatibility.
+	 * Empty string if not available.
+	 */
+	uint16_t        uszShortName[14];
+
+	SHFLSTRING      name;
+} SHFLDIRINFO, *PSHFLDIRINFO;
+
+#define SHFL_LIST_NONE          0
+#define SHFL_LIST_RETURN_ONE    1
+#define SHFL_LIST_RESTART       2
+
+/** Query flag: Guest prefers drive letters as mount points. */
+#define SHFL_MIQF_DRIVE_LETTER      RT_BIT(0)
+/** Query flag: Guest prefers paths as mount points. */
+#define SHFL_MIQF_PATH              RT_BIT(1)
+
+/** Set if writable. */
+#define SHFL_MIF_WRITABLE           RT_BIT(0)
+/** Indicates that the mapping should be auto-mounted. */
+#define SHFL_MIF_AUTO_MOUNT         RT_BIT(1)
+/** Set if host is case insensitive. */
+#define SHFL_MIF_HOST_ICASE         RT_BIT(2)
+/** Set if guest is case insensitive. */
+#define SHFL_MIF_GUEST_ICASE        RT_BIT(3)
+/** Symbolic link creation is allowed. */
+#define SHFL_MIF_SYMLINK_CREATION   RT_BIT(4)
+
+#pragma pack (pop)
 
 #endif

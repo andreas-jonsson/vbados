@@ -4,6 +4,8 @@
 mousedosobjs = mousetsr.obj mousmain.obj vbox.obj
 mousew16objs = mousew16.obj
 
+sfdosobjs = sftsr.obj sfmain.obj vbox.obj
+
 doscflags = -bt=dos -ms -6 -osi -w3 -wcd=202
 # -ms to use small memory model (though sometimes ss != ds...)
 # -osi to optimize for size, put intrinsics inline (to avoid runtime calls)
@@ -23,7 +25,9 @@ w16cflags = -bt=windows -bd -mc -zu -s -6 -oi -w3 -wcd=202
 	# We need DOS and Windows headers, not host platform's
 	set include=$(%watcom)/h/win;$(%watcom)/h
 
-# Main DOS driver file
+all: vbmouse.exe vbmouse.drv vbsf.exe .SYMBOLIC
+
+# DOS mouse driver
 vbmouse.exe: vbmouse.lnk $(mousedosobjs) 
 	wlink @$[@ name $@ file { $(mousedosobjs) } 
 
@@ -36,19 +40,30 @@ mousmain.obj: mousmain.c .AUTODEPEND
 vbox.obj: vbox.c .AUTODEPEND
 	wcc -fo=$^@ $(doscflags) $[@
 
+# Windows 3.x mouse driver
 vbmouse.drv: mousew16.lnk $(mousew16objs)
 	wlink @$[@ name $@ file { $(mousew16objs) }
 
 mousew16.obj: mousew16.c .AUTODEPEND
 	wcc -fo=$^@ $(w16cflags) $[@
 
+# DOS shared folders
+vbsf.exe: vbsf.lnk $(sfdosobjs)
+	wlink @$[@ name $@ file { $(sfdosobjs) }
+
+sfmain.obj: sfmain.c .AUTODEPEND
+	wcc -fo=$^@ $(doscflags) $[@
+
+sftsr.obj: sftsr.c .AUTODEPEND
+	wcc -fo=$^@ $(doscflags) $(dostsrcflags) $[@
+
 clean: .SYMBOLIC
-	rm -f vbmouse.exe vbmouse.drv vbmouse.flp *.obj *.map
+	rm -f vbmouse.exe vbmouse.drv vbsf.exe vbmouse.flp *.obj *.map
 
 vbmouse.flp:
 	mformat -C -f 1440 -v VBMOUSE -i $^@ ::
 
 # Build a floppy image containing the driver
-flp: vbmouse.flp vbmouse.exe vbmouse.drv oemsetup.inf .SYMBOLIC
-	mcopy -i vbmouse.flp -o vbmouse.exe vbmouse.drv oemsetup.inf ::
+flp: vbmouse.flp vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe .SYMBOLIC
+	mcopy -i vbmouse.flp -o vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe ::
 

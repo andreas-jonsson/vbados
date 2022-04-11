@@ -24,13 +24,13 @@
 
 // Customizable defines
 /** If 0, these routines become nops */
-#define ENABLE_DLOG 0
+#define ENABLE_DLOG 1
 /** 1 means target serial port, 0 means target IO port. */
-#define DLOG_TARGET_SERIAL 1
+#define DLOG_TARGET_SERIAL 0
 /** IO port to target.
  *  VirtualBox uses 0x504, Bochs, DOSBox and descendants use 0xE9.
  *  When using DLOG_TARGET_SERIAL, use desired UART IO base port. (e.g. COM1 = 0x3F8). */
-#define DLOG_TARGET_PORT 0x3f8
+#define DLOG_TARGET_PORT 0x504
 
 // End of customizable defines
 
@@ -88,6 +88,24 @@ static void dlog_print(const char *s)
 	char c;
 	while (c = *s++) {
 		dlog_putc(c);
+	}
+}
+
+/** Print (far) string to log */
+static void dlog_fprint(const char __far *s)
+{
+	char c;
+	while (c = *s++) {
+		dlog_putc(c);
+	}
+}
+
+/** Print (far) string of fixed length to log */
+static void dlog_fnprint(const char __far *s, unsigned l)
+{
+	while (l > 0) {
+		dlog_putc(*s++);
+		l--;
 	}
 }
 
@@ -158,16 +176,19 @@ static void dlog_printd(int num)
 
 #else /* ENABLE_DLOG */
 
-#define dlog_init()
-#define dlog_putc(c)
-#define dlog_endline()
-#define dlog_print(s)
-#define dlog_puts(s)
-#define dlog_printub(n,b)
-#define dlog_printdb(n,b)
-#define dlog_printx(n)
-#define dlog_printu(n)
-#define dlog_printd(n)
+#define dlog_nop()          do { } while(0)
+#define dlog_init()         dlog_nop()
+#define dlog_putc(c)        dlog_nop()
+#define dlog_endline()      dlog_nop()
+#define dlog_print(s)       dlog_nop()
+#define dlog_fprint(s)      dlog_nop()
+#define dlog_fnprint(s,n)   dlog_nop()
+#define dlog_puts(s)        dlog_nop()
+#define dlog_printub(n,b)   dlog_nop()
+#define dlog_printdb(n,b)   dlog_nop()
+#define dlog_printx(n)      dlog_nop()
+#define dlog_printu(n)      dlog_nop()
+#define dlog_printd(n)      dlog_nop()
 
 
 #endif /* ENABLE_DLOG */

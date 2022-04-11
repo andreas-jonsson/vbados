@@ -1448,20 +1448,14 @@ static LPTSRDATA int33_get_tsr_data(void);
 	__value [es di] \
 	__modify [ax]
 
-static LPTSRDATA local_get_tsr_data(void);
-#pragma aux local_get_tsr_data = \
-	"mov ax, cs" \
-	"mov es, ax" \
-	"mov di, offset data" \
-	__value [es di] \
-	__modify [ax]
-
 LPTSRDATA __far get_tsr_data(bool installed)
 {
 	if (installed) {
 		return int33_get_tsr_data();
 	} else {
-		return local_get_tsr_data();
+		// Get the TSR data of this instance, not the one currently installed
+		// This is as simple as getting the data from this segment
+		return MK_FP(get_cs(), FP_OFF(&data));
 	}
 }
 

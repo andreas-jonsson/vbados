@@ -66,18 +66,23 @@ extern int vbox_init_buffer(LPVBOXCOMM vb);
 /** Releases/unlocks buffer, no further use possible. */
 extern int vbox_release_buffer(LPVBOXCOMM vb);
 
+static void vbox_init_req(VMMDevRequestHeader __far *hdr, VMMDevRequestType type, unsigned size)
+{
+	_fmemset(hdr, 0, size);
+
+	hdr->size = size;
+	hdr->version = VMMDEV_REQUEST_HEADER_VERSION;
+	hdr->requestType = type;
+	hdr->rc = VERR_DEV_IO_ERROR; // So that we trigger an error if VirtualBox doesn't actually reply anything
+}
+
 /** Lets VirtualBox know that there are VirtualBox Guest Additions on this guest.
   * @param osType os installed on this guest. */
-static int vbox_report_guest_info(LPVBOXCOMM vb, uint32_t osType)
+static int32_t vbox_report_guest_info(LPVBOXCOMM vb, uint32_t osType)
 {
 	VMMDevReportGuestInfo __far *req = (void __far *) vb->buf;
 
-	_fmemset(req, 0, sizeof(VMMDevReportGuestInfo));
-
-	req->header.size = sizeof(VMMDevReportGuestInfo);
-	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
-	req->header.requestType = VMMDevReq_ReportGuestInfo;
-	req->header.rc = -1;
+	vbox_init_req(&req->header, VMMDevReq_ReportGuestInfo, sizeof(VMMDevReportGuestInfo));
 	req->guestInfo.interfaceVersion = VMMDEV_VERSION;
 	req->guestInfo.osType = osType;
 
@@ -87,16 +92,11 @@ static int vbox_report_guest_info(LPVBOXCOMM vb, uint32_t osType)
 }
 
 /** Tells VirtualBox whether we want absolute mouse information or not. */
-static int vbox_set_mouse(LPVBOXCOMM vb, bool absolute, bool pointer)
+static int32_t vbox_set_mouse(LPVBOXCOMM vb, bool absolute, bool pointer)
 {
 	VMMDevReqMouseStatus __far *req = (void __far *) vb->buf;
 
-	_fmemset(req, 0, sizeof(VMMDevReqMouseStatus));
-
-	req->header.size = sizeof(VMMDevReqMouseStatus);
-	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
-	req->header.requestType = VMMDevReq_SetMouseStatus;
-	req->header.rc = -1;
+	vbox_init_req(&req->header, VMMDevReq_SetMouseStatus, sizeof(VMMDevReqMouseStatus));
 	if (absolute) req->mouseFeatures |= VMMDEV_MOUSE_GUEST_CAN_ABSOLUTE;
 	if (pointer)  req->mouseFeatures |= VMMDEV_MOUSE_GUEST_NEEDS_HOST_CURSOR;
 
@@ -108,17 +108,12 @@ static int vbox_set_mouse(LPVBOXCOMM vb, bool absolute, bool pointer)
 /** Gets the current absolute mouse position from VirtualBox.
   * @param abs false if user has disabled mouse integration in VirtualBox,
   *  in which case we should fallback to PS/2 relative events. */
-static int vbox_get_mouse(LPVBOXCOMM vb, bool __far *abs,
+static int32_t vbox_get_mouse(LPVBOXCOMM vb, bool __far *abs,
                           uint16_t __far *xpos, uint16_t __far *ypos)
 {
 	VMMDevReqMouseStatus __far *req = (void __far *) vb->buf;
 
-	_fmemset(req, 0, sizeof(VMMDevReqMouseStatus));
-
-	req->header.size = sizeof(VMMDevReqMouseStatus);
-	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
-	req->header.requestType = VMMDevReq_GetMouseStatus;
-	req->header.rc = -1;
+	vbox_init_req(&req->header, VMMDevReq_GetMouseStatus, sizeof(VMMDevReqMouseStatus));
 
 	vbox_send_request(vb->iobase, vb->dds.physicalAddress);
 
@@ -130,17 +125,11 @@ static int vbox_get_mouse(LPVBOXCOMM vb, bool __far *abs,
 }
 
 /** Asks the host to render the mouse cursor for us. */
-static int vbox_set_pointer_visible(LPVBOXCOMM vb, bool visible)
+static int32_t vbox_set_pointer_visible(LPVBOXCOMM vb, bool visible)
 {
 	VMMDevReqMousePointer __far *req = (void __far *) vb->buf;
 
-	_fmemset(req, 0, sizeof(VMMDevReqMousePointer));
-
-	req->header.size = sizeof(VMMDevReqMousePointer);
-	req->header.version = VMMDEV_REQUEST_HEADER_VERSION;
-	req->header.requestType = VMMDevReq_SetPointerShape;
-	req->header.rc = -1;
-
+	vbox_init_req(&req->header, VMMDevReq_SetPointerShape, sizeof(VMMDevReqMousePointer));
 	if (visible) req->fFlags |= VBOX_MOUSE_POINTER_VISIBLE;
 
 	vbox_send_request(vb->iobase, vb->dds.physicalAddress);
@@ -155,6 +144,17 @@ static inline unsigned vbox_req_mouse_pointer_size(unsigned width, unsigned heig
 	const unsigned xor_mask_size = width * height * 4;
 	const unsigned data_size = and_mask_size + xor_mask_size;
 	return MAX(sizeof(VMMDevReqMousePointer), 24 + 20 + data_size);
+}
+
+static int32_t vbox_idle(LPVBOXCOMM vb)
+{
+	VMMDevReqIdle __far *req = (void __far *) vb->buf;
+
+	vbox_init_req(&req->header, VMMDevReq_Idle, sizeof(VMMDevReqIdle));
+
+	vbox_send_request(vb->iobase, vb->dds.physicalAddress);
+
+	return req->header.rc;
 }
 
 #pragma pop (unreferenced)

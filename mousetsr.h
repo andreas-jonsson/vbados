@@ -17,8 +17,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-#ifndef DOSTSR_H
-#define DOSTSR_H
+#ifndef MOUSETSR_H
+#define MOUSETSR_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -214,4 +214,4 @@ static inline unsigned get_resident_size(void)
 	return FP_OFF(&resident_end);
 }
 
-#endif
+#endif /* MOUSETSR_H */

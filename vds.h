@@ -76,14 +76,6 @@ typedef _Packed struct VDSDDS
 	uint32_t physicalAddress;
 } VDSDDS;
 
-/** Converts a far pointer into equivalent linear address.
- *  Note that under protected mode linear != physical.
- *  That's what VDS is for.  */
-static inline uint32_t vds_ptr_to_linear(const void __far * ptr)
-{
-	return ((uint32_t)(FP_SEG(ptr)) << 4) + FP_OFF(ptr);
-}
-
 static bool vds_available(void);
 #pragma aux vds_available = \
 	"mov ax, 0x40" \
