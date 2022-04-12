@@ -773,6 +773,7 @@ static inline bool is_search_dir_open()
 	return data.files[SEARCH_DIR_FILE].root != SHFL_ROOT_NIL;
 }
 
+/** Simulates a directory entry with the current volume label. */
 static int32_t find_volume_label(SHFLROOT root)
 {
 	DOSDIR __far *found_file = &data.dossda->found_file;
@@ -785,16 +786,21 @@ static int32_t find_volume_label(SHFLROOT root)
 
 	translate_filename_from_host(&shflstr.shflstr);
 
-	dlog_print("label : ");
+	dlog_print("label: ");
 	dlog_fprint(shflstr.buf);
 	dlog_endline();
 
+	found_file->attr = _A_VOLID;
 	copy_to_8_3_filename(found_file->filename, &shflstr.shflstr);
-	found_file->attr = _A_VOLID | _A_HIDDEN;
+	found_file->f_date = 0;
+	found_file->f_time = 0;
+	found_file->f_size = 0;
+	found_file->start_cluster = 0;
 
 	return 0;
 }
 
+/** Gets and fills in the next directory entry from VirtualBox. */
 static int32_t find_next_from_vbox(uint8_t search_attr)
 {
 	DOSDIR __far *found_file = &data.dossda->found_file;
@@ -834,6 +840,7 @@ static int32_t find_next_from_vbox(uint8_t search_attr)
 		dlog_endline();
 
 		// TODO Use the short filename if available from a windows host
+		// i.e. shfldirinfo.dirinfo.cucShortName
 
 		translate_filename_from_host(&shfldirinfo.dirinfo.name);
 
@@ -856,6 +863,7 @@ static int32_t find_next_from_vbox(uint8_t search_attr)
 static void handle_find(union INTPACK __far *r)
 {
 	const char __far *path = data.dossda->fn1;
+	const char __far *search_mask = data.dossda->fcb_fn1;
 	int drive = drive_letter_to_index(path[0]);
 	SHFLROOT root = data.drives[drive].root;
 	DOSDIR __far *found_file = &data.dossda->found_file;
@@ -867,6 +875,8 @@ static void handle_find(union INTPACK __far *r)
 
 		dlog_print("find_first path=");
 		dlog_fprint(path);
+		dlog_print(" mask=");
+		dlog_fnprint(search_mask, 8+3);
 		dlog_print(" attr=");
 		dlog_printx(search_attr);
 		dlog_endline();
@@ -882,16 +892,19 @@ static void handle_find(union INTPACK __far *r)
 		translate_filename_to_host(&shflstr.shflstr);
 		fix_wildcards(&shflstr.shflstr);
 
+		// It is important that we initialize DOS' search structure
+		// or DOS may decide never to call us again
 		data.dossda->sdb.drive_letter = 0x80 | drive;
 		data.dossda->sdb.search_attr = search_attr;
-		_fmemset(data.dossda->sdb.search_templ, ' ', 8+3);
+		_fmemcpy(data.dossda->sdb.search_templ, search_mask, 8+3);
 		data.dossda->sdb.dir_entry = 0;
 		data.dossda->sdb.par_clstr = 0;
 
 		if (search_attr & _A_VOLID) {
-			// Simulate an initial entry: volume label
+			// Simulate an initial entry with the volume label
+			// if we are searching for it.
+			// DOS actually expects to always find it first.
 			dlog_puts("search volid");
-			// DOS wants volume label; optimize that
 			err = find_volume_label(root);
 			if (err) {
 				dlog_puts("search volid err");
@@ -910,8 +923,6 @@ static void handle_find(union INTPACK __far *r)
 		dlog_printx(search_attr);
 		dlog_endline();
 	}
-
-	found_file->attr = 0;
 
 	err = find_next_from_vbox(search_attr);
 	if (err) {
