@@ -22,17 +22,19 @@
 
 #include "vboxhgcm.h"
 
-#define SHFLSTRING_WITH_BUF(name, size) \
+#define SHFLSTRING_WITH_BUF(varname, bufsize) \
 	struct { \
 	    SHFLSTRING shflstr; \
-	    char buf[size]; \
-	} name = { {size, 0} }
+	    char buf[bufsize]; \
+	} varname = { .shflstr = { .u16Size = bufsize} }
 
-#define SHFLDIRINFO_WITH_BUF(name, size) \
+#define SHFLDIRINFO_WITH_NAME_BUF(varname, bufsize) \
 	struct { \
 	    SHFLDIRINFO dirinfo; \
-	    char buf[size]; \
-	} name
+	    char buf[bufsize]; \
+	} varname = { \
+	    .dirinfo = { .name = { .u16Size = bufsize} } \
+	}
 
 static inline unsigned shflstring_size_with_buf(const SHFLSTRING *str)
 {
@@ -429,6 +431,40 @@ static int32_t vbox_shfl_remove(LPVBOXCOMM vb, hgcm_client_id_t client_id, SHFLR
 	return req->header.result;
 }
 
+static int32_t vbox_shfl_rename(LPVBOXCOMM vb, hgcm_client_id_t client_id, SHFLROOT root,
+                                const SHFLSTRING *src, const SHFLSTRING *dst, unsigned flags)
+{
+	VMMDevHGCMCall __far *req = (void __far *) vb->buf;
+	vbox_hgcm_init_call(req, client_id, SHFL_FN_RENAME, 4);
+
+	// arg 0 in uint32 "root"
+	req->aParms[0].type = VMMDevHGCMParmType_32bit;
+	req->aParms[0].u.value32 = root;
+
+	// arg 1 in shflstring "src"
+	req->aParms[1].type = VMMDevHGCMParmType_LinAddr;
+	req->aParms[1].u.Pointer.size = shflstring_size_with_buf(src);
+	req->aParms[1].u.Pointer.u.linearAddr = linear_addr(src);
+
+	// arg 2 in shflstring "dst"
+	req->aParms[2].type = VMMDevHGCMParmType_LinAddr;
+	req->aParms[2].u.Pointer.size = shflstring_size_with_buf(dst);
+	req->aParms[2].u.Pointer.u.linearAddr = linear_addr(dst);
+
+	// arg 3 in uint32 "flags"
+	req->aParms[3].type = VMMDevHGCMParmType_32bit;
+	req->aParms[3].u.value32 = flags;
+
+	vbox_send_request(vb->iobase, vb->dds.physicalAddress);
+
+	if (req->header.header.rc < 0) {
+		return req->header.header.rc;
+	} else if (req->header.header.rc == VINF_HGCM_ASYNC_EXECUTE) {
+		vbox_hgcm_wait(&req->header);
+	}
+
+	return req->header.result;
+}
 
 static int32_t vbox_shfl_set_utf8(LPVBOXCOMM vb, hgcm_client_id_t client_id)
 {

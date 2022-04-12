@@ -54,6 +54,28 @@
 #define VERR_INVALID_HANDLE                 (-4)
 /** Invalid loader handle. */
 #define VWRN_INVALID_HANDLE                 4
+/** Failed to lock the address range. */
+#define VERR_LOCK_FAILED                    (-5)
+/** Invalid memory pointer. */
+#define VERR_INVALID_POINTER                (-6)
+/** Failed to patch the IDT. */
+#define VERR_IDT_FAILED                     (-7)
+/** Memory allocation failed. */
+#define VERR_NO_MEMORY                      (-8)
+/** Already loaded. */
+#define VERR_ALREADY_LOADED                 (-9)
+/** Permission denied. */
+#define VERR_PERMISSION_DENIED              (-10)
+/** Permission denied. */
+#define VINF_PERMISSION_DENIED              10
+/** Version mismatch. */
+#define VERR_VERSION_MISMATCH               (-11)
+/** The request function is not implemented. */
+#define VERR_NOT_IMPLEMENTED                (-12)
+/** The request function is not implemented. */
+#define VINF_NOT_IMPLEMENTED                12
+/** Invalid flags was given. */
+#define VERR_INVALID_FLAGS                  (-13)
 
 #define VERR_FILE_IO_ERROR                  (-100)
 /** File/Device open failed. */
@@ -72,6 +94,50 @@
 #define VERR_TOO_MANY_OPEN_FILES            (-106)
 /** Seek error. */
 #define VERR_SEEK                           (-107)
+/** Seek below file start. */
+#define VERR_NEGATIVE_SEEK                  (-108)
+/** Trying to seek on device. */
+#define VERR_SEEK_ON_DEVICE                 (-109)
+/** Reached the end of the file. */
+#define VERR_EOF                            (-110)
+/** Reached the end of the file. */
+#define VINF_EOF                            110
+/** Generic file read error. */
+#define VERR_READ_ERROR                     (-111)
+/** Generic file write error. */
+#define VERR_WRITE_ERROR                    (-112)
+/** Write protect error. */
+#define VERR_WRITE_PROTECT                  (-113)
+/** Sharing violation, file is being used by another process. */
+#define VERR_SHARING_VIOLATION              (-114)
+/** Unable to lock a region of a file. */
+#define VERR_FILE_LOCK_FAILED               (-115)
+/** File access error, another process has locked a portion of the file. */
+#define VERR_FILE_LOCK_VIOLATION            (-116)
+/** File or directory can't be created. */
+#define VERR_CANT_CREATE                    (-117)
+/** Directory can't be deleted. */
+#define VERR_CANT_DELETE_DIRECTORY          (-118)
+/** Can't move file to another disk. */
+#define VERR_NOT_SAME_DEVICE                (-119)
+/** The filename or extension is too long. */
+#define VERR_FILENAME_TOO_LONG              (-120)
+/** Media not present in drive. */
+#define VERR_MEDIA_NOT_PRESENT              (-121)
+/** The type of media was not recognized. Not formatted? */
+#define VERR_MEDIA_NOT_RECOGNIZED           (-122)
+/** Can't unlock - region was not locked. */
+#define VERR_FILE_NOT_LOCKED                (-123)
+/** Unrecoverable error: lock was lost. */
+#define VERR_FILE_LOCK_LOST                 (-124)
+/** Can't delete directory with files. */
+#define VERR_DIR_NOT_EMPTY                  (-125)
+/** A directory operation was attempted on a non-directory object. */
+#define VERR_NOT_A_DIRECTORY                (-126)
+/** A non-directory operation was attempted on a directory object. */
+#define VERR_IS_A_DIRECTORY                 (-127)
+/** Tried to grow a file beyond the limit imposed by the process or the filesystem. */
+#define VERR_FILE_TOO_BIG                   (-128)
 
 /** @name Generic Directory Enumeration Status Codes
  * @{
@@ -1285,6 +1351,10 @@ typedef struct _SHFLCREATEPARMS
 #define SHFL_LOCK_PARTIAL    (0x0)
 /** Lock entire object. */
 #define SHFL_LOCK_ENTIRE     (0x8)
+
+#define SHFL_RENAME_FILE                (0x1)
+#define SHFL_RENAME_DIR                 (0x2)
+#define SHFL_RENAME_REPLACE_IF_EXISTS   (0x4)
 
 /** @name Shared Folders mappings.
  * @{

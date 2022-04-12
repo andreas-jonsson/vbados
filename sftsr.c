@@ -31,7 +31,7 @@ TSRDATA data;
 /** Private buffer for VirtualBox filenames. */
 static SHFLSTRING_WITH_BUF(shflstr, SHFL_MAX_LEN);
 
-static SHFLDIRINFO_WITH_BUF(shfldirinfo, SHFL_MAX_LEN);
+static SHFLDIRINFO_WITH_NAME_BUF(shfldirinfo, SHFL_MAX_LEN);
 
 static SHFLCREATEPARMS createparms;
 
@@ -122,11 +122,15 @@ static bool is_call_for_mounted_drive(union INTPACK __far *r)
 
 static void clear_dos_err(union INTPACK __far *r)
 {
+	dlog_puts("->ok");
 	r->x.flags &= ~INTR_CF;
 }
 
 static void set_dos_err(union INTPACK __far *r, int err)
 {
+	dlog_print("->dos error ");
+	dlog_printd(err);
+	dlog_endline();
 	r->x.flags |= INTR_CF;
 	r->x.ax = err;
 }
@@ -148,6 +152,10 @@ static int vbox_err_to_dos(int32_t err)
 		return DOS_ERROR_NO_MORE_FILES;
 	case VERR_ALREADY_EXISTS:
 		return DOS_ERROR_FILE_EXISTS;
+	case VERR_TOO_MANY_OPEN_FILES:
+		return DOS_ERROR_TOO_MANY_OPEN_FILES;
+	case VERR_WRITE_PROTECT:
+		return DOS_ERROR_WRITE_PROTECT;
 	default:
 		return DOS_ERROR_GEN_FAILURE;
 	}
@@ -155,13 +163,16 @@ static int vbox_err_to_dos(int32_t err)
 
 static void set_vbox_err(union INTPACK __far *r, int32_t err)
 {
-	dlog_print("vbox error ");
-	dlog_printx(err >> 16);
-	dlog_print(":");
-	dlog_printx(err & 0xFFFF);
+	dlog_print("->vbox error ");
+	if (err < INT16_MIN || err > INT16_MAX) {
+		dlog_printx(err >> 16);
+		dlog_print(":");
+		dlog_printx(err & 0xFFFF);
+	} else {
+		dlog_printd(err);
+	}
 	dlog_endline();
-	r->x.flags |= INTR_CF;
-	r->x.ax = vbox_err_to_dos(err);
+	set_dos_err(r, vbox_err_to_dos(err));
 }
 
 static int my_strrchr(const char __far *str, char c)
@@ -345,7 +356,7 @@ static void handle_create_open_ex(union INTPACK __far *r)
 
 	openfile = find_free_openfile();
 	if (!openfile) {
-		set_dos_err(r, DOS_ERROR_ERROR_TOO_MANY_OPEN_FILES);
+		set_dos_err(r, DOS_ERROR_TOO_MANY_OPEN_FILES);
 		return;
 	}
 
@@ -372,6 +383,11 @@ static void handle_create_open_ex(union INTPACK __far *r)
 		createparms.CreateFlags |= SHFL_CF_ACCESS_WRITE;
 	} else {
 		createparms.CreateFlags |= SHFL_CF_ACCESS_READ;
+	}
+
+	if (!(createparms.CreateFlags & SHFL_CF_ACCESS_WRITE)) {
+		// Do we really want to create new files without opening them for writing?
+		createparms.CreateFlags |= SHFL_CF_ACT_FAIL_IF_NEW;
 	}
 
 	dlog_print("vbox createparms flags=");
@@ -613,6 +629,45 @@ static void handle_delete(union INTPACK __far *r)
 	clear_dos_err(r);
 }
 
+static void handle_rename(union INTPACK __far *r)
+{
+	const char __far *src = data.dossda->fn1;
+	int srcdrive = drive_letter_to_index(src[0]);
+	const char __far *dst = data.dossda->fn2;
+	int dstdrive = drive_letter_to_index(dst[0]);
+	SHFLROOT root = data.drives[srcdrive].root;
+	int32_t err;
+
+	dlog_print("handle_rename ");
+	dlog_fprint(src);
+	dlog_print(" to ");
+	dlog_fprint(dst);
+	dlog_endline();
+
+	if (srcdrive != dstdrive) {
+		set_dos_err(r, DOS_ERROR_NOT_SAME_DEVICE);
+		return;
+	}
+
+	copy_drive_relative_filename(&shflstr.shflstr, src);
+	translate_filename_to_host(&shflstr.shflstr);
+
+	// Reusing shfldirinfo buffer space here
+	// Hoping no one does concurrent find_next and rename
+	copy_drive_relative_filename(&shfldirinfo.dirinfo.name, dst);
+	translate_filename_to_host(&shfldirinfo.dirinfo.name);
+
+	err = vbox_shfl_rename(&data.vb, data.hgcm_client_id, root,
+	                       &shflstr.shflstr, &shfldirinfo.dirinfo.name,
+	                       SHFL_RENAME_DIR | SHFL_RENAME_FILE);
+	if (err) {
+		set_vbox_err(r, err);
+		return;
+	}
+
+	clear_dos_err(r);
+}
+
 static void handle_getattr(union INTPACK __far *r)
 {
 	const char __far *path = data.dossda->fn1;
@@ -624,7 +679,7 @@ static void handle_getattr(union INTPACK __far *r)
 	dlog_fprint(path);
 	dlog_endline();
 
-	copy_drive_relative_dirname(&shflstr.shflstr, path);
+	copy_drive_relative_filename(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
 
 	memset(&createparms, 0, sizeof(SHFLCREATEPARMS));
@@ -750,8 +805,6 @@ static int32_t find_next_from_vbox(uint8_t search_attr)
 		return VERR_INVALID_HANDLE;
 	}
 
-	shfldirinfo.dirinfo.name.u16Size = sizeof(shfldirinfo.buf);
-
 	while (1) { // Loop until we have a valid file (or an error)
 		unsigned size = sizeof(shfldirinfo), resume = 0, count = 0;
 		dlog_puts("calling vbox list");
@@ -760,6 +813,12 @@ static int32_t find_next_from_vbox(uint8_t search_attr)
 		                     data.files[SEARCH_DIR_FILE].root, data.files[SEARCH_DIR_FILE].handle,
 		                     SHFL_LIST_RETURN_ONE, &size, &shflstr.shflstr, &shfldirinfo.dirinfo,
 		                     &resume, &count);
+
+		// Reset the size of the buffer here since VirtualBox "shortens" it,
+		// (since it expects to fit in more entries in the same space, but
+		//  we won't allow that via SHFL_LIST_RETURN_ONE).
+		shfldirinfo.dirinfo.name.u16Size = sizeof(shfldirinfo.buf);
+
 		if (err) {
 			return err;
 		}
@@ -1032,6 +1091,9 @@ static bool int2f_11_handler(union INTPACK r)
 		return true;
 	case DOS_FN_DELETE:
 		handle_delete(&r);
+		return true;
+	case DOS_FN_RENAME:
+		handle_rename(&r);
 		return true;
 	case DOS_FN_GET_FILE_ATTR:
 		handle_getattr(&r);
