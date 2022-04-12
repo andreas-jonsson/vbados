@@ -195,6 +195,11 @@ typedef _Packed struct dos_search_data_block {
 } DOSSDB;
 STATIC_ASSERT(sizeof(DOSSDB) == 21);
 
+typedef _Packed struct dos_lock_params {
+	uint32_t start_offset;
+	uint32_t region_size;
+} DOSLOCK;
+
 typedef _Packed struct dos_direntry {
 	char filename[11];
 	uint8_t attr;

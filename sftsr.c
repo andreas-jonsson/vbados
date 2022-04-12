@@ -58,6 +58,14 @@ static void map_shfl_info_to_dosdir(DOSDIR __far *dir, SHFLFSOBJINFO *i)
 	dir->start_cluster = 0;
 }
 
+static void map_shfl_info_to_getattr(union INTPACK __far *r, SHFLFSOBJINFO *i)
+{
+	r->x.ax = map_shfl_attr_to_dosattr(&i->Attr);
+	r->x.bx = ((uint32_t)i->cbObject) >> 16;
+	r->x.di = ((uint16_t)i->cbObject);
+	timestampns_to_dos_time(&r->x.cx, &r->x.dx, i->ModificationTime, data.tz_offset);
+}
+
 static int get_op_drive_num(union INTPACK __far *r)
 {
 	DOSSFT __far *sft;
@@ -527,6 +535,36 @@ static void handle_write(union INTPACK __far *r)
 	clear_dos_err(r);
 }
 
+static void handle_lock(union INTPACK __far *r)
+{
+	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
+	unsigned openfile = get_sft_openfile_index(sft);
+	bool unlock = r->h.bl ? true : false;
+	unsigned numops = r->x.cx, i;
+	unsigned flags = (unlock ? SHFL_LOCK_CANCEL : SHFL_LOCK_EXCLUSIVE)
+	        | SHFL_LOCK_WAIT | SHFL_LOCK_PARTIAL;
+	DOSLOCK __far *ops = MK_FP(r->x.ds, r->x.dx);
+	int32_t err;
+
+	dlog_print("handle_lock ");
+	if (unlock) dlog_print("unlock");
+	dlog_print(" numops=");
+	dlog_printu(numops);
+	dlog_endline();
+
+	for (i = 0; i < numops; i++) {
+		err = vbox_shfl_lock(&data.vb, data.hgcm_client_id,
+		                     data.files[openfile].root, data.files[openfile].handle,
+		                     ops[i].start_offset, ops[i].region_size, flags);
+		if (err) {
+			set_vbox_err(r, err);
+			return;
+		}
+	}
+
+	clear_dos_err(r);
+}
+
 static void handle_close_all(union INTPACK __far *r)
 {
 	int32_t err;
@@ -574,6 +612,46 @@ static void handle_delete(union INTPACK __far *r)
 
 	clear_dos_err(r);
 }
+
+static void handle_getattr(union INTPACK __far *r)
+{
+	const char __far *path = data.dossda->fn1;
+	int drive = drive_letter_to_index(path[0]);
+	SHFLROOT root = data.drives[drive].root;
+	int32_t err;
+
+	dlog_print("handle_getattr ");
+	dlog_fprint(path);
+	dlog_endline();
+
+	copy_drive_relative_dirname(&shflstr.shflstr, path);
+	translate_filename_to_host(&shflstr.shflstr);
+
+	memset(&createparms, 0, sizeof(SHFLCREATEPARMS));
+	createparms.CreateFlags = SHFL_CF_LOOKUP;
+
+	err = vbox_shfl_open(&data.vb, data.hgcm_client_id, root,
+	                     &shflstr.shflstr, &createparms);
+	if (err) {
+		set_vbox_err(r, err);
+		return;
+	}
+	switch (createparms.Result) {
+	case SHFL_PATH_NOT_FOUND:
+		set_dos_err(r, DOS_ERROR_PATH_NOT_FOUND);
+		return;
+	case SHFL_FILE_NOT_FOUND:
+		set_dos_err(r, DOS_ERROR_PATH_NOT_FOUND);
+		return;
+	default:
+		break;
+	}
+
+	map_shfl_info_to_getattr(r, &createparms.Info);
+	clear_dos_err(r);
+}
+
+
 static int32_t open_search_dir(SHFLROOT root, const char __far *path)
 {
 	int32_t err;
@@ -949,8 +1027,14 @@ static bool int2f_11_handler(union INTPACK r)
 	case DOS_FN_WRITE:
 		handle_write(&r);
 		return true;
+	case DOS_FN_LOCK:
+		handle_lock(&r);
+		return true;
 	case DOS_FN_DELETE:
 		handle_delete(&r);
+		return true;
+	case DOS_FN_GET_FILE_ATTR:
+		handle_getattr(&r);
 		return true;
 	case DOS_FN_FIND_FIRST:
 	case DOS_FN_FIND_NEXT:

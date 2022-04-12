@@ -307,6 +307,43 @@ static int32_t vbox_shfl_write(LPVBOXCOMM vb, hgcm_client_id_t client_id, SHFLRO
 	return req->header.result;
 }
 
+static int32_t vbox_shfl_lock(LPVBOXCOMM vb, hgcm_client_id_t client_id, SHFLROOT root, SHFLHANDLE handle,
+                              unsigned long offset, unsigned long length, unsigned flags)
+{
+	VMMDevHGCMCall __far *req = (void __far *) vb->buf;
+	vbox_hgcm_init_call(req, client_id, SHFL_FN_LOCK, 5);
+
+	// arg 0 in uint32 "root"
+	req->aParms[0].type = VMMDevHGCMParmType_32bit;
+	req->aParms[0].u.value32 = root;
+
+	// arg 1 in uint64 "handle"
+	req->aParms[1].type = VMMDevHGCMParmType_64bit;
+	req->aParms[1].u.value64 = handle;
+
+	// arg 2 in uint64 "offset"
+	req->aParms[2].type = VMMDevHGCMParmType_64bit;
+	req->aParms[2].u.value64 = offset;
+
+	// arg 3 inout uint64 "length"
+	req->aParms[3].type = VMMDevHGCMParmType_64bit;
+	req->aParms[3].u.value64 = length;
+
+	// arg 4 in uint32 "flags"
+	req->aParms[4].type = VMMDevHGCMParmType_32bit;
+	req->aParms[4].u.value32 = flags;
+
+	vbox_send_request(vb->iobase, vb->dds.physicalAddress);
+
+	if (req->header.header.rc < 0) {
+		return req->header.header.rc;
+	} else if (req->header.header.rc == VINF_HGCM_ASYNC_EXECUTE) {
+		vbox_hgcm_wait(&req->header);
+	}
+
+	return req->header.result;
+}
+
 static int32_t vbox_shfl_list(LPVBOXCOMM vb, hgcm_client_id_t client_id, SHFLROOT root, SHFLHANDLE handle,
                               unsigned flags, unsigned __far *size, const SHFLSTRING *path, SHFLDIRINFO *dirinfo, unsigned __far *resume, unsigned __far *count)
 {

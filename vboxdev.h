@@ -1267,6 +1267,25 @@ typedef struct _SHFLCREATEPARMS
 } SHFLCREATEPARMS;
 #pragma pack(pop)
 
+/** Lock mode bit mask. */
+#define SHFL_LOCK_MODE_MASK  (0x3)
+/** Cancel lock on the given range. */
+#define SHFL_LOCK_CANCEL     (0x0)
+/** Acquire read only lock. Prevent write to the range. */
+#define SHFL_LOCK_SHARED     (0x1)
+/** Acquire write lock. Prevent both write and read to the range. */
+#define SHFL_LOCK_EXCLUSIVE  (0x2)
+
+/** Do not wait for lock if it can not be acquired at the time. */
+#define SHFL_LOCK_NOWAIT     (0x0)
+/** Wait and acquire lock. */
+#define SHFL_LOCK_WAIT       (0x4)
+
+/** Lock the specified range. */
+#define SHFL_LOCK_PARTIAL    (0x0)
+/** Lock entire object. */
+#define SHFL_LOCK_ENTIRE     (0x8)
+
 /** @name Shared Folders mappings.
  * @{
  */
