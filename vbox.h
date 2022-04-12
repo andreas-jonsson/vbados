@@ -31,7 +31,8 @@
 #include "utils.h"
 #include "vboxdev.h"
 
-//#define VBOX_BUFFER_SIZE 64
+/** Size of the VBox buffer. The maximum message length that may be sent. */
+// Enough to fit a set_pointer_shape message with a 16x16 cursor
 #define VBOX_BUFFER_SIZE (1024 + 32 + 24 + 20)
 
 typedef struct vboxcomm {

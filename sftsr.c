@@ -22,6 +22,7 @@
 #include <i86.h>
 
 #include "int21dos.h"
+#include "unixtime.h"
 #include "vboxshfl.h"
 #include "sftsr.h"
 
@@ -33,44 +34,6 @@ static SHFLSTRING_WITH_BUF(shflstr, SHFL_MAX_LEN);
 static SHFLDIRINFO_WITH_BUF(shfldirinfo, SHFL_MAX_LEN);
 
 static SHFLCREATEPARMS createparms;
-
-union qword_to_words {
-	uint64_t q;
-	struct {
-		uint16_t w[4];
-	};
-};
-
-#if 0
-static uint32_t map_timestampns_to_timestamps(uint64_t timestampns)
-{
-	unsigned long timestampsec;
-
-	__asm {
-		push eax ; Preserve 32-bit regs
-		push edx
-		mov eax, dword ptr [timestampns]
-		mov edx, dword ptr [timestampns + 4]
-
-		mov ecx, 1000000000 /* ns to seconds */
-		div ecx
-		mov [timestampsec], eax
-		pop edx
-		pop eax
-	}
-
-	return timestampsec;
-}
-#endif
-
-static void map_timestampns_to_dostime(uint64_t timestampns,
-                                       uint16_t __far * time, uint16_t __far *  date)
-{
-	// TODO
-	(void) timestampns;
-	*time = 0;
-	*date = 0;
-}
 
 static uint8_t map_shfl_attr_to_dosattr(const SHFLFSOBJATTR *a)
 {
@@ -84,54 +47,16 @@ static void map_shfl_info_to_dossft(DOSSFT __far *sft, SHFLFSOBJINFO *i)
 {
 	sft->attr = map_shfl_attr_to_dosattr(&i->Attr);
 	sft->f_size = i->cbObject;
-	map_timestampns_to_dostime(i->ModificationTime, &sft->f_time, &sft->f_date);
+	timestampns_to_dos_time(&sft->f_time, &sft->f_date, i->ModificationTime, data.tz_offset);
 }
 
 static void map_shfl_info_to_dosdir(DOSDIR __far *dir, SHFLFSOBJINFO *i)
 {
 	dir->attr = map_shfl_attr_to_dosattr(&i->Attr);
 	dir->f_size = i->cbObject;
-	map_timestampns_to_dostime(i->ModificationTime, &dir->f_time, &dir->f_date);
+	timestampns_to_dos_time(&dir->f_time, &dir->f_date, i->ModificationTime, data.tz_offset);
 	dir->start_cluster = 0;
 }
-
-static uint64_t get_sft_vbox_handle(DOSSFT __far *sft)
-{
-	union qword_to_words u;
-	u.w[0] = sft->start_cluster;
-	u.w[1] = sft->last_rel_cluster;
-	u.w[2] = sft->last_abs_cluster;
-	u.w[3] = sft->dir_sector;
-	return u.q;
-}
-
-static void set_sft_vbox_handle(DOSSFT __far *sft, uint64_t handle)
-{
-	union qword_to_words u;
-	u.q = handle;
-	sft->start_cluster = u.w[0];
-	sft->last_rel_cluster = u.w[1];
-	sft->last_abs_cluster = u.w[2];
-	sft->dir_sector = u.w[3];
-}
-
-#if ENABLE_DLOG
-static void print_handle(uint64_t handle)
-{
-
-	union qword_to_words u;
-	u.q = handle;
-	dlog_printx(u.w[3]);
-	dlog_putc('.');
-	dlog_printx(u.w[2]);
-	dlog_putc('.');
-	dlog_printx(u.w[1]);
-	dlog_putc('.');
-	dlog_printx(u.w[0]);
-}
-#else
-#define print_handle(h) dlog_nop()
-#endif
 
 static int get_op_drive_num(union INTPACK __far *r)
 {
@@ -213,6 +138,8 @@ static int vbox_err_to_dos(int32_t err)
 		return DOS_ERROR_PATH_NOT_FOUND;
 	case VERR_NO_MORE_FILES:
 		return DOS_ERROR_NO_MORE_FILES;
+	case VERR_ALREADY_EXISTS:
+		return DOS_ERROR_FILE_EXISTS;
 	default:
 		return DOS_ERROR_GEN_FAILURE;
 	}
@@ -341,6 +268,35 @@ static bool copy_to_8_3_filename(char __far *dst, const SHFLSTRING *str)
 	return valid_8_3;
 }
 
+static uint16_t find_free_openfile()
+{
+	unsigned i;
+	for (i = 1; i < NUM_FILES; i++) {
+		if (data.files[i].root == SHFL_ROOT_NIL) {
+			return i;
+		}
+	}
+	return 0;
+}
+
+static bool is_valid_openfile_index(unsigned index)
+{
+	if (index > NUM_FILES) return false;
+	if (index < 1) return false; // User programs cannot use index 0
+	if (data.files[index].root == SHFL_ROOT_NIL) return 0;
+	return true;
+}
+
+static inline void set_sft_openfile_index(DOSSFT __far *sft, unsigned index)
+{
+	sft->start_cluster = index;
+}
+
+static inline unsigned get_sft_openfile_index(DOSSFT __far *sft)
+{
+	return sft->start_cluster;
+}
+
 static void handle_create_open_ex(union INTPACK __far *r)
 {
 	const char __far *path = data.dossda->fn1;
@@ -348,6 +304,7 @@ static void handle_create_open_ex(union INTPACK __far *r)
 	SHFLROOT root = data.drives[drive].root;
 	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
 	unsigned int action, mode;
+	unsigned openfile;
 	bool save_result;
 	int32_t err;
 
@@ -378,6 +335,12 @@ static void handle_create_open_ex(union INTPACK __far *r)
 	dlog_printx(mode);
 	dlog_endline();
 
+	openfile = find_free_openfile();
+	if (!openfile) {
+		set_dos_err(r, DOS_ERROR_ERROR_TOO_MANY_OPEN_FILES);
+		return;
+	}
+
 	copy_drive_relative_filename(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
 
@@ -395,9 +358,9 @@ static void handle_create_open_ex(union INTPACK __far *r)
 		createparms.CreateFlags |= SHFL_CF_ACT_FAIL_IF_NEW;
 	}
 
-	if (mode == OPENEX_MODE_RDWR) {
+	if ((mode & OPENEX_MODE_RDWR) == OPENEX_MODE_RDWR) {
 		createparms.CreateFlags |= SHFL_CF_ACCESS_READWRITE;
-	} else if (mode == OPENEX_MODE_WRITE) {
+	} else if (mode & OPENEX_MODE_WRITE) {
 		createparms.CreateFlags |= SHFL_CF_ACCESS_WRITE;
 	} else {
 		createparms.CreateFlags |= SHFL_CF_ACCESS_READ;
@@ -415,18 +378,16 @@ static void handle_create_open_ex(union INTPACK __far *r)
 
 	dlog_print("vbox success result=");
 	dlog_printd(createparms.Result);
-	dlog_print(" handle=");
-	print_handle(createparms.Handle);
+	dlog_print(" openfile=");
+	dlog_printu(openfile);
 	dlog_endline();
 
 	switch (createparms.Result) {
 	case SHFL_PATH_NOT_FOUND:
-		r->x.ax = DOS_ERROR_PATH_NOT_FOUND;
-		r->x.flags |= INTR_CF;
+		set_dos_err(r, DOS_ERROR_PATH_NOT_FOUND);
 		return;
 	case SHFL_FILE_NOT_FOUND:
-		r->x.ax = DOS_ERROR_FILE_NOT_FOUND;
-		r->x.flags |= INTR_CF;
+		set_dos_err(r, DOS_ERROR_FILE_NOT_FOUND);
 		return;
 	case SHFL_FILE_EXISTS:
 		if (save_result) r->x.cx = OPENEX_FILE_OPENED;
@@ -439,34 +400,48 @@ static void handle_create_open_ex(union INTPACK __far *r)
 		break;
 	}
 
+	if (createparms.Handle == SHFL_HANDLE_NIL) {
+		set_dos_err(r, DOS_ERROR_GEN_FAILURE);
+		return;
+	}
+
+	data.files[openfile].root = root;
+	data.files[openfile].handle = createparms.Handle;
+
 	// Fill in the SFT
 	map_shfl_info_to_dossft(sft, &createparms.Info);
 	sft->open_mode = mode;
 	sft->dev_info = 0x8040 | drive; // "Network drive, unwritten to"
 	sft->f_pos = 0;
-	set_sft_vbox_handle(sft, createparms.Handle);
+	set_sft_openfile_index(sft, openfile);
 
 	clear_dos_err(r);
 }
 
 static void handle_close(union INTPACK __far *r)
 {
-	const char __far *path = data.dossda->fn1;
-	int drive = drive_letter_to_index(path[0]);
-	SHFLROOT root = data.drives[drive].root;
 	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
-	uint64_t handle = get_sft_vbox_handle(sft);
+	unsigned openfile = get_sft_openfile_index(sft);
 	int32_t err;
 
-	dlog_print("handle_close for ");
-	print_handle(handle);
+	dlog_print("handle_close openfile=");
+	dlog_printu(openfile);
 	dlog_endline();
 
-	err = vbox_shfl_close(&data.vb, data.hgcm_client_id, root, handle);
+	if (!is_valid_openfile_index(openfile)) {
+		set_dos_err(r, DOS_ERROR_INVALID_HANDLE);
+		return;
+	}
+
+	err = vbox_shfl_close(&data.vb, data.hgcm_client_id,
+	                      data.files[openfile].root, data.files[openfile].handle);
 	if (err) {
 		set_vbox_err(r, err);
 		return;
 	}
+
+	data.files[openfile].root = SHFL_ROOT_NIL;
+	data.files[openfile].handle = SHFL_HANDLE_NIL;
 
 	clear_dos_err(r);
 }
@@ -474,21 +449,25 @@ static void handle_close(union INTPACK __far *r)
 static void handle_read(union INTPACK __far *r)
 {
 	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
-	int drive = sft->dev_info & 0x1F;
-	SHFLROOT root = data.drives[drive].root;
-	uint64_t handle = get_sft_vbox_handle(sft);
+	unsigned openfile = get_sft_openfile_index(sft);
 	uint8_t __far *buffer = data.dossda->cur_dta;
 	unsigned long offset = sft->f_pos;
 	unsigned bytes = r->x.cx;
 	int32_t err;
 
-	dlog_print("handle_read handle=");
-	print_handle(handle);
+	dlog_print("handle_read openfile=");
+	dlog_printu(openfile);
 	dlog_print(" bytes=");
 	dlog_printu(bytes);
 	dlog_endline();
 
-	err = vbox_shfl_read(&data.vb, data.hgcm_client_id, root, handle,
+	if (!is_valid_openfile_index(openfile)) {
+		set_dos_err(r, DOS_ERROR_INVALID_HANDLE);
+		return;
+	}
+
+	err = vbox_shfl_read(&data.vb, data.hgcm_client_id,
+	                     data.files[openfile].root, data.files[openfile].handle,
 	                     offset, &bytes, buffer);
 	if (err) {
 		set_vbox_err(r, err);
@@ -509,21 +488,25 @@ static void handle_read(union INTPACK __far *r)
 static void handle_write(union INTPACK __far *r)
 {
 	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
-	int drive = sft->dev_info & 0x1F;
-	SHFLROOT root = data.drives[drive].root;
-	uint64_t handle = get_sft_vbox_handle(sft);
+	unsigned openfile = get_sft_openfile_index(sft);
 	uint8_t __far *buffer = data.dossda->cur_dta;
 	unsigned long offset = sft->f_pos;
 	unsigned bytes = r->x.cx;
 	int32_t err;
 
-	dlog_print("handle_write handle=");
-	print_handle(handle);
+	dlog_print("handle_write openfile=");
+	dlog_printu(openfile);
 	dlog_print(" bytes=");
 	dlog_printu(bytes);
 	dlog_endline();
 
-	err = vbox_shfl_write(&data.vb, data.hgcm_client_id, root, handle,
+	if (!is_valid_openfile_index(openfile)) {
+		set_dos_err(r, DOS_ERROR_INVALID_HANDLE);
+		return;
+	}
+
+	err = vbox_shfl_write(&data.vb, data.hgcm_client_id,
+	                      data.files[openfile].root, data.files[openfile].handle,
 	                      offset, &bytes, buffer);
 	if (err) {
 		set_vbox_err(r, err);
@@ -544,6 +527,53 @@ static void handle_write(union INTPACK __far *r)
 	clear_dos_err(r);
 }
 
+static void handle_close_all(union INTPACK __far *r)
+{
+	int32_t err;
+	unsigned i;
+
+	dlog_puts("handle_close_all");
+
+	for (i = 0; i < NUM_FILES; ++i) {
+		if (data.files[i].root != SHFL_ROOT_NIL) {
+			err = vbox_shfl_close(&data.vb, data.hgcm_client_id,
+			                      data.files[i].root, data.files[i].handle);
+			if (err) {
+				dlog_puts("vbox error on close all...");
+				// We'll leak this handle...
+			}
+
+			data.files[i].root = SHFL_ROOT_NIL;
+			data.files[i].handle = SHFL_HANDLE_NIL;
+		}
+	}
+
+	clear_dos_err(r);
+}
+
+static void handle_delete(union INTPACK __far *r)
+{
+	const char __far *path = data.dossda->fn1;
+	int drive = drive_letter_to_index(path[0]);
+	SHFLROOT root = data.drives[drive].root;
+	int32_t err;
+
+	dlog_print("handle_delete ");
+	dlog_fprint(path);
+	dlog_endline();
+
+	copy_drive_relative_filename(&shflstr.shflstr, path);
+	translate_filename_to_host(&shflstr.shflstr);
+
+	err = vbox_shfl_remove(&data.vb, data.hgcm_client_id, root,
+	                       &shflstr.shflstr, SHFL_REMOVE_FILE);
+	if (err) {
+		set_vbox_err(r, err);
+		return;
+	}
+
+	clear_dos_err(r);
+}
 static int32_t open_search_dir(SHFLROOT root, const char __far *path)
 {
 	int32_t err;
@@ -574,26 +604,40 @@ static int32_t open_search_dir(SHFLROOT root, const char __far *path)
 		break;
 	}
 
-	data.search_dir_handle = createparms.Handle;
+	if (createparms.Handle == SHFL_HANDLE_NIL) {
+		dlog_puts("open search dir returned no handle...");
+		return VERR_INVALID_HANDLE;
+	}
+
+	data.files[SEARCH_DIR_FILE].root = root;
+	data.files[SEARCH_DIR_FILE].handle = createparms.Handle;
+
 	return 0;
 }
 
-static int close_search_dir(SHFLROOT root)
+static void close_search_dir()
 {
 	int32_t err;
 
-	if (data.search_dir_handle == SHFL_HANDLE_NIL) return 0;
-
-	err = vbox_shfl_close(&data.vb, data.hgcm_client_id, root,
-	                      data.search_dir_handle);
-
-	data.search_dir_handle = SHFL_HANDLE_NIL;
-
-	if (err) {
-		return vbox_err_to_dos(err);
+	if (data.files[SEARCH_DIR_FILE].root == SHFL_ROOT_NIL) {
+		// Already closed
+		return;
 	}
 
-	return 0;
+	err = vbox_shfl_close(&data.vb, data.hgcm_client_id,
+	                      data.files[SEARCH_DIR_FILE].root,
+	                      data.files[SEARCH_DIR_FILE].handle);
+	if (err) {
+		dlog_puts("vbox error on close_search_dir, ignoring");
+	}
+
+	data.files[SEARCH_DIR_FILE].root = SHFL_ROOT_NIL;
+	data.files[SEARCH_DIR_FILE].handle = SHFL_HANDLE_NIL;
+}
+
+static inline bool is_search_dir_open()
+{
+	return data.files[SEARCH_DIR_FILE].root != SHFL_ROOT_NIL;
 }
 
 static int32_t find_volume_label(SHFLROOT root)
@@ -618,10 +662,15 @@ static int32_t find_volume_label(SHFLROOT root)
 	return 0;
 }
 
-static int32_t find_next_from_vbox(SHFLROOT root, uint8_t search_attr)
+static int32_t find_next_from_vbox(uint8_t search_attr)
 {
 	DOSDIR __far *found_file = &data.dossda->found_file;
 	int32_t err;
+
+	if (!is_search_dir_open()) {
+		dlog_puts("find_next called, but no opendir handle");
+		return VERR_INVALID_HANDLE;
+	}
 
 	shfldirinfo.dirinfo.name.u16Size = sizeof(shfldirinfo.buf);
 
@@ -629,7 +678,8 @@ static int32_t find_next_from_vbox(SHFLROOT root, uint8_t search_attr)
 		unsigned size = sizeof(shfldirinfo), resume = 0, count = 0;
 		dlog_puts("calling vbox list");
 
-		err = vbox_shfl_list(&data.vb, data.hgcm_client_id, root, data.search_dir_handle,
+		err = vbox_shfl_list(&data.vb, data.hgcm_client_id,
+		                     data.files[SEARCH_DIR_FILE].root, data.files[SEARCH_DIR_FILE].handle,
 		                     SHFL_LIST_RETURN_ONE, &size, &shflstr.shflstr, &shfldirinfo.dirinfo,
 		                     &resume, &count);
 		if (err) {
@@ -684,7 +734,7 @@ static void handle_find(union INTPACK __far *r)
 		dlog_printx(search_attr);
 		dlog_endline();
 
-		close_search_dir(root);
+		close_search_dir();
 		err = open_search_dir(root, path);
 		if (err) {
 			set_vbox_err(r, err);
@@ -726,12 +776,12 @@ static void handle_find(union INTPACK __far *r)
 
 	found_file->attr = 0;
 
-	err = find_next_from_vbox(root, search_attr);
+	err = find_next_from_vbox(search_attr);
 	if (err) {
 		if (err == VERR_NO_MORE_FILES) {
 			dlog_puts("no more files");
 		}
-		close_search_dir(root);
+		close_search_dir();
 		set_vbox_err(r, err);
 		return;
 	}
@@ -790,6 +840,70 @@ static void handle_chdir(union INTPACK __far *r)
 	clear_dos_err(r);
 }
 
+static void handle_mkdir(union INTPACK __far *r)
+{
+	const char __far *path = data.dossda->fn1;
+	int drive = drive_letter_to_index(path[0]);
+	SHFLROOT root = data.drives[drive].root;
+	int32_t err;
+
+	dlog_print("handle_mkdir ");
+	dlog_fprint(path);
+	dlog_endline();
+
+	copy_drive_relative_filename(&shflstr.shflstr, path);
+	translate_filename_to_host(&shflstr.shflstr);
+
+	memset(&createparms, 0, sizeof(SHFLCREATEPARMS));
+	createparms.CreateFlags = SHFL_CF_DIRECTORY
+	        | SHFL_CF_ACT_FAIL_IF_EXISTS | SHFL_CF_ACT_CREATE_IF_NEW;
+
+	err = vbox_shfl_open(&data.vb, data.hgcm_client_id, root,
+	                     &shflstr.shflstr, &createparms);
+	if (err) {
+		set_vbox_err(r, err);
+		return;
+	}
+
+	switch (createparms.Result) {
+	case SHFL_PATH_NOT_FOUND:
+	case SHFL_FILE_NOT_FOUND:
+		set_dos_err(r, DOS_ERROR_PATH_NOT_FOUND);
+		return;
+	case SHFL_FILE_EXISTS:
+		set_dos_err(r, DOS_ERROR_FILE_EXISTS);
+		return;
+	default:
+		break;
+	}
+
+	clear_dos_err(r);
+}
+
+static void handle_rmdir(union INTPACK __far *r)
+{
+	const char __far *path = data.dossda->fn1;
+	int drive = drive_letter_to_index(path[0]);
+	SHFLROOT root = data.drives[drive].root;
+	int32_t err;
+
+	dlog_print("handle_rmdir ");
+	dlog_fprint(path);
+	dlog_endline();
+
+	copy_drive_relative_filename(&shflstr.shflstr, path);
+	translate_filename_to_host(&shflstr.shflstr);
+
+	err = vbox_shfl_remove(&data.vb, data.hgcm_client_id, root,
+	                       &shflstr.shflstr, SHFL_REMOVE_DIR);
+	if (err) {
+		set_vbox_err(r, err);
+		return;
+	}
+
+	clear_dos_err(r);
+}
+
 static bool int2f_11_handler(union INTPACK r)
 #pragma aux int2f_11_handler "*" parm caller [] value [al] modify [ax bx cx dx si di es gs fs]
 {
@@ -808,6 +922,14 @@ static bool int2f_11_handler(union INTPACK r)
 	dlog_printx(r.h.al);
 	dlog_endline();
 
+	// Handle special functions that target all redirectors first
+	switch (r.h.al) {
+	case DOS_FN_CLOSE_ALL:
+		handle_close_all(&r);
+		return false; // Let others do the same
+	}
+
+	// Now handle normal functions if they refer to our mounted drives
 	if (!is_call_for_mounted_drive(&r)) {
 		return false;
 	}
@@ -827,12 +949,21 @@ static bool int2f_11_handler(union INTPACK r)
 	case DOS_FN_WRITE:
 		handle_write(&r);
 		return true;
+	case DOS_FN_DELETE:
+		handle_delete(&r);
+		return true;
 	case DOS_FN_FIND_FIRST:
 	case DOS_FN_FIND_NEXT:
 		handle_find(&r);
 		return true;
 	case DOS_FN_CHDIR:
 		handle_chdir(&r);
+		return true;
+	case DOS_FN_MKDIR:
+		handle_mkdir(&r);
+		return true;
+	case DOS_FN_RMDIR:
+		handle_rmdir(&r);
 		return true;
 	case DOS_FN_GET_DISK_FREE:
 		// We don't support this

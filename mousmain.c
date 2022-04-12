@@ -274,8 +274,8 @@ static int configure_driver(LPTSRDATA data)
 
 static int move_driver_to_umb(LPTSRDATA __far * data)
 {
-	segment_t cur_seg = FP_SEG(data);
-	segment_t umb_seg = reallocate_to_umb(&cur_seg,  get_resident_size() + DOS_PSP_SIZE);
+	segment_t cur_seg = FP_SEG(*data);
+	segment_t umb_seg = reallocate_to_umb(cur_seg,  get_resident_size() + DOS_PSP_SIZE);
 
 	if (umb_seg) {
 		// Update the data pointer with the new segment

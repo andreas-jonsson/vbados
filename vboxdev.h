@@ -1111,20 +1111,20 @@ typedef struct SHFLFSOBJINFO
    /** Time of last access (st_atime).
 	* @remarks  Here (and other places) we depend on the IPRT timespec to
 	*           remain unchanged. */
-   uint64_t     AccessTime;
+   int64_t     AccessTime;
 
    /** Time of last data modification (st_mtime). */
-   uint64_t     ModificationTime;
+   int64_t     ModificationTime;
 
    /** Time of last status change (st_ctime).
 	* If not available this is set to ModificationTime.
 	*/
-   uint64_t     ChangeTime;
+   int64_t     ChangeTime;
 
    /** Time of file birth (st_birthtime).
 	* If not available this is set to ChangeTime.
 	*/
-   uint64_t     BirthTime;
+   int64_t     BirthTime;
 
    /** Attributes. */
    SHFLFSOBJATTR Attr;
@@ -1322,6 +1322,10 @@ typedef struct _SHFLDIRINFO
 #define SHFL_LIST_NONE          0
 #define SHFL_LIST_RETURN_ONE    1
 #define SHFL_LIST_RESTART       2
+
+#define SHFL_REMOVE_FILE        (0x1)
+#define SHFL_REMOVE_DIR         (0x2)
+#define SHFL_REMOVE_SYMLINK     (0x4)
 
 /** Query flag: Guest prefers drive letters as mount points. */
 #define SHFL_MIQF_DRIVE_LETTER      RT_BIT(0)

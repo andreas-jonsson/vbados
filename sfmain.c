@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <dos.h>
 
 #include "dlog.h"
@@ -61,6 +62,23 @@ static int list_folders(LPTSRDATA data)
 	unsigned num_maps = sizeof(maps) / sizeof(SHFLMAPPING);
 	unsigned i;
 
+	printf("Mounted drives:\n");
+
+	for (i = 0; i < NUM_DRIVES; i++) {
+		if (data->drives[i].root == SHFL_ROOT_NIL) {
+			// Not mounted
+			continue;
+		}
+
+		err = vbox_shfl_query_map_name(&data->vb, data->hgcm_client_id, data->drives[i].root, &str.shflstr);
+		if (err) {
+			printf("Error on Query Map Name, err=%ld\n", err);
+			continue;
+		}
+
+		printf(" %s on %c:\n", str.buf, drive_index_to_letter(i));
+	}
+
 	err = vbox_shfl_query_mappings(&data->vb, data->hgcm_client_id, 0, &num_maps, maps);
 	if (err) {
 		printf("Error on Query Mappings, err=%ld\n", err);
@@ -82,13 +100,45 @@ static int list_folders(LPTSRDATA data)
 	return 0;
 }
 
+/** Closes all currently open files.
+ *  @param drive drive number, or -1 to close files from all drives. */
+static void close_openfiles(LPTSRDATA data, int drive)
+{
+	SHFLROOT search_root = SHFL_ROOT_NIL;
+	int32_t err;
+	unsigned i;
+
+	if (drive >= 0) {
+		search_root = data->drives[drive].root;
+	}
+
+	for (i = 0; i < NUM_FILES; i++) {
+		if (data->files[i].root == SHFL_ROOT_NIL) {
+			// Already closed
+			continue;
+		}
+		if (search_root != SHFL_ROOT_NIL &&
+		        data->files[i].root != search_root) {
+			// File from a different shared folder
+			continue;
+		}
+
+		err = vbox_shfl_close(&data->vb, data->hgcm_client_id, data->files[i].root, data->files[i].handle);
+		if (err) {
+			printf("Error on Close File, err=%ld\n", err);
+			// Ignore it
+		}
+
+		data->files[i].root = SHFL_ROOT_NIL;
+		data->files[i].handle = SHFL_HANDLE_NIL;
+	}
+}
+
 static int mount_shfl(LPTSRDATA data, int drive, const char *folder)
 {
 	int32_t err;
 	SHFLSTRING_WITH_BUF(str, SHFL_MAX_LEN);
 	SHFLROOT root = SHFL_ROOT_NIL;
-
-	printf("Mounting %s...\n", folder);
 
 	shflstring_strcpy(&str.shflstr, folder);
 
@@ -106,6 +156,8 @@ static int mount_shfl(LPTSRDATA data, int drive, const char *folder)
 static int unmount_shfl(LPTSRDATA data, int drive)
 {
 	int32_t err;
+
+	close_openfiles(data, drive);
 
 	err = vbox_shfl_unmap_folder(&data->vb, data->hgcm_client_id,
 	                             data->drives[drive].root);
@@ -252,6 +304,10 @@ static int unmount_all(LPTSRDATA data)
 	int err = 0;
 	unsigned i;
 
+	// Close all files
+	close_openfiles(data, -1);
+
+	// Unmount all drives
 	for (i = 0 ; i < NUM_DRIVES; i++) {
 		if (data->drives[i].root != SHFL_ROOT_NIL) {
 			if (unmount(data, drive_index_to_letter(i)) != 0) {
@@ -272,10 +328,25 @@ static int configure_driver(LPTSRDATA data)
 	for (i = 0; i < NUM_DRIVES; ++i) {
 		data->drives[i].root = SHFL_ROOT_NIL;
 	}
+	for (i = 0; i < NUM_FILES; ++i) {
+		data->files[i].root = SHFL_ROOT_NIL;
+		data->files[i].handle = SHFL_HANDLE_NIL;
+	}
 
+	// Initialize TSR data
 	data->dossda = dos_get_swappable_dos_area();
-	data->search_dir_handle = SHFL_HANDLE_NIL;
 
+	// Get the current timezone offset
+	if (getenv("TZ")) {
+		tzset();
+		printf("Using timezone from TZ variable (%s)\n", tzname[0]);
+		data->tz_offset = timezone / 2;
+	} else {
+		printf("No TZ environment variable\n");
+		data->tz_offset = 0;
+	}
+
+	// Now try to initialize VirtualBox communication
 	err = vbox_init_device(&data->vb);
 	if (err) {
 		fprintf(stderr, "Cannot find VirtualBox PCI device, err=%ld\n", err);
@@ -315,8 +386,8 @@ static int configure_driver(LPTSRDATA data)
 
 static int move_driver_to_umb(LPTSRDATA __far * data)
 {
-	segment_t cur_seg = FP_SEG(data);
-	segment_t umb_seg = reallocate_to_umb(&cur_seg,  get_resident_size() + DOS_PSP_SIZE);
+	segment_t cur_seg = FP_SEG(*data);
+	segment_t umb_seg = reallocate_to_umb(cur_seg,  get_resident_size() + DOS_PSP_SIZE);
 
 	if (umb_seg) {
 		// Update the data pointer with the new segment
@@ -375,6 +446,8 @@ static int unconfigure_driver(LPTSRDATA data)
 
 	vbox_hgcm_disconnect(&data->vb, data->hgcm_client_id);
 	data->hgcm_client_id = 0;
+
+	vbox_release_buffer(&data->vb);
 
 	return 0;
 }

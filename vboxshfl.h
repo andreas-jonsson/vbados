@@ -362,6 +362,37 @@ static int32_t vbox_shfl_list(LPVBOXCOMM vb, hgcm_client_id_t client_id, SHFLROO
 	return req->header.result;
 }
 
+static int32_t vbox_shfl_remove(LPVBOXCOMM vb, hgcm_client_id_t client_id, SHFLROOT root,
+                                const SHFLSTRING *path, unsigned flags)
+{
+	VMMDevHGCMCall __far *req = (void __far *) vb->buf;
+	vbox_hgcm_init_call(req, client_id, SHFL_FN_REMOVE, 3);
+
+	// arg 0 in uint32 "root"
+	req->aParms[0].type = VMMDevHGCMParmType_32bit;
+	req->aParms[0].u.value32 = root;
+
+	// arg 1 in shflstring "path"
+	req->aParms[1].type = VMMDevHGCMParmType_LinAddr;
+	req->aParms[1].u.Pointer.size = shflstring_size_with_buf(path);
+	req->aParms[1].u.Pointer.u.linearAddr = linear_addr(path);
+
+	// arg 2 in uint32 "flags"
+	req->aParms[2].type = VMMDevHGCMParmType_32bit;
+	req->aParms[2].u.value32 = flags;
+
+	vbox_send_request(vb->iobase, vb->dds.physicalAddress);
+
+	if (req->header.header.rc < 0) {
+		return req->header.header.rc;
+	} else if (req->header.header.rc == VINF_HGCM_ASYNC_EXECUTE) {
+		vbox_hgcm_wait(&req->header);
+	}
+
+	return req->header.result;
+}
+
+
 static int32_t vbox_shfl_set_utf8(LPVBOXCOMM vb, hgcm_client_id_t client_id)
 {
 	VMMDevHGCMCall __far *req = (void __far *) vb->buf;

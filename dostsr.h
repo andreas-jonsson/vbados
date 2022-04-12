@@ -76,37 +76,35 @@ static __segment allocate_umb(unsigned size)
 	return new_segment;
 }
 
-static __segment reallocate_to_umb(segment_t __far * cur_seg, unsigned segment_size)
+static __segment reallocate_to_umb(segment_t cur_seg, unsigned segment_size)
 {
-	segment_t old_psp_segment = *cur_seg - (DOS_PSP_SIZE/16);
-	segment_t new_psp_segment;
+	segment_t old_segment_psp = cur_seg - (DOS_PSP_SIZE/16);
+	segment_t new_segment_psp;
 
 	deallocate_environment(_psp);
 
 	// If we are already in UMA, don't bother
-	if (old_psp_segment >= 0xA000) {
+	if (old_segment_psp >= 0xA000) {
 		return 0;
 	}
 
-	new_psp_segment = allocate_umb(segment_size);
+	new_segment_psp = allocate_umb(segment_size);
 
-	if (new_psp_segment && new_psp_segment >= 0xA000) {
-		segment_t new_segment = new_psp_segment + (DOS_PSP_SIZE/16);
-		printf("Moving to upper memory\n");
+	if (new_segment_psp && new_segment_psp >= 0xA000) {
+		segment_t new_segment = new_segment_psp + (DOS_PSP_SIZE/16);
 
 		// Create a new program instance including PSP at the new_segment
-		copy_program(new_psp_segment, old_psp_segment, segment_size);
+		copy_program(new_segment_psp, old_segment_psp, segment_size);
 
 		// Tell DOS to "switch" to the new program
-		dos_set_psp(new_psp_segment);
+		dos_set_psp(new_segment_psp);
 
 		// Return the new segment
 		return new_segment;
 	} else {
-		printf("No upper memory available\n");
-		if (new_psp_segment) {
+		if (new_segment_psp) {
 			// In case we got another low-memory segment...
-			dos_free(new_psp_segment);
+			dos_free(new_segment_psp);
 		}
 
 		return 0;
