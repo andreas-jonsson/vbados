@@ -298,6 +298,13 @@ static inline DOSLOL __far * dos_get_list_of_lists(void);
 	__value [es bx] \
 	__modify [ax]
 
+static inline uint16_t dos_sft_decref(DOSSFT __far *sft);
+#pragma aux dos_sft_decref = \
+	"mov ax, 0x1208" \
+	"int 0x2F" \
+	__parm [es di] \
+	__value [ax]
+
 // Network redirector interface
 
 enum DOS_REDIR_SUBFUNCTION {

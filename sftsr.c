@@ -464,6 +464,8 @@ static void handle_close(union INTPACK __far *r)
 		return;
 	}
 
+	dos_sft_decref(sft);
+
 	data.files[openfile].root = SHFL_ROOT_NIL;
 	data.files[openfile].handle = SHFL_HANDLE_NIL;
 

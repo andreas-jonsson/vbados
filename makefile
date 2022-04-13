@@ -29,33 +29,33 @@ all: vbmouse.exe vbmouse.drv vbsf.exe .SYMBOLIC
 
 # DOS mouse driver
 vbmouse.exe: vbmouse.lnk $(mousedosobjs) 
-	wlink @$[@ name $@ file { $(mousedosobjs) } 
+	*wlink @$[@ name $@ file { $(mousedosobjs) }
 
 mousetsr.obj: mousetsr.c .AUTODEPEND
-	wcc -fo=$^@ $(doscflags) $(dostsrcflags) $[@
+	*wcc -fo=$^@ $(doscflags) $(dostsrcflags) $[@
 
 mousmain.obj: mousmain.c .AUTODEPEND
-	wcc -fo=$^@ $(doscflags) $[@
+	*wcc -fo=$^@ $(doscflags) $[@
 
 vbox.obj: vbox.c .AUTODEPEND
-	wcc -fo=$^@ $(doscflags) $[@
+	*wcc -fo=$^@ $(doscflags) $[@
 
 # Windows 3.x mouse driver
 vbmouse.drv: mousew16.lnk $(mousew16objs)
-	wlink @$[@ name $@ file { $(mousew16objs) }
+	*wlink @$[@ name $@ file { $(mousew16objs) }
 
 mousew16.obj: mousew16.c .AUTODEPEND
-	wcc -fo=$^@ $(w16cflags) $[@
+	*wcc -fo=$^@ $(w16cflags) $[@
 
 # DOS shared folders
 vbsf.exe: vbsf.lnk $(sfdosobjs)
-	wlink @$[@ name $@ file { $(sfdosobjs) }
+	*wlink @$[@ name $@ file { $(sfdosobjs) }
 
 sfmain.obj: sfmain.c .AUTODEPEND
-	wcc -fo=$^@ $(doscflags) $[@
+	*wcc -fo=$^@ $(doscflags) $[@
 
 sftsr.obj: sftsr.c .AUTODEPEND
-	wcc -fo=$^@ $(doscflags) $(dostsrcflags) $[@
+	*wcc -fo=$^@ $(doscflags) $(dostsrcflags) $[@
 
 clean: .SYMBOLIC
 	rm -f vbmouse.exe vbmouse.drv vbsf.exe vbmouse.flp *.obj *.map
