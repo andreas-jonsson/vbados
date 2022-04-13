@@ -1038,8 +1038,6 @@ static void return_clear_wheel_counter(union INTPACK __far *r)
 	r->x.cx = snap_to_grid(data.wheel_last.x, data.screen_granularity.x);
 	r->x.dx = snap_to_grid(data.wheel_last.y, data.screen_granularity.y);
 	r->x.bx = data.wheel_delta;
-	data.wheel_last.x = 0;
-	data.wheel_last.y = 0;
 	data.wheel_delta = 0;
 }
 
@@ -1048,8 +1046,6 @@ static void return_clear_button_counter(union INTPACK __far *r, struct buttoncou
 	r->x.cx = snap_to_grid(c->last.x, data.screen_granularity.x);
 	r->x.dx = snap_to_grid(c->last.y, data.screen_granularity.y);
 	r->x.bx = c->count;
-	c->last.x = 0;
-	c->last.y = 0;
 	c->count = 0;
 }
 
@@ -1068,10 +1064,16 @@ static void int33_handler(union INTPACK r)
 		r.x.bx = NUM_BUTTONS;
 		break;
 	case INT33_SHOW_CURSOR:
+#if TRACE_EVENTS
+		dlog_puts("Mouse show cursor");
+#endif
 		data.visible_count++;
 		refresh_cursor();
 		break;
 	case INT33_HIDE_CURSOR:
+#if TRACE_EVENTS
+		dlog_puts("Mouse hide cursor");
+#endif
 		data.visible_count--;
 		refresh_cursor();
 		break;
@@ -1104,6 +1106,9 @@ static void int33_handler(union INTPACK r)
 		bound_position_to_window();
 		break;
 	case INT33_GET_BUTTON_PRESSED_COUNTER:
+#if TRACE_EVENTS
+		dlog_puts("Mouse get button pressed counter");
+#endif
 		r.x.ax = data.buttons;
 #if USE_WHEEL
 		if (data.haswheel) {
@@ -1120,6 +1125,9 @@ static void int33_handler(union INTPACK r)
 		    &data.button[MIN(r.x.bx, NUM_BUTTONS - 1)].pressed);
 		break;
 	case INT33_GET_BUTTON_RELEASED_COUNTER:
+#if TRACE_EVENTS
+		dlog_puts("Mouse get button released counter");
+#endif
 		r.x.ax = data.buttons;
 #if USE_WHEEL
 		if (data.haswheel) {
