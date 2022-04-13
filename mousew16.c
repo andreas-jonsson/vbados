@@ -17,24 +17,49 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-#include <windows.h>
+#include <string.h>
 #include <limits.h>
+#include <windows.h>
 
 #include "utils.h"
 #include "int33.h"
+#include "int21dos.h"
 #include "int2fwin.h"
 #include "mousew16.h"
 
+/** Whether to enable wheel mouse handling. */
+#define USE_WHEEL 1
+/** Verbosely log events as they happen. */
 #define TRACE_EVENTS 0
 
 #define MOUSE_NUM_BUTTONS 2
 
 /** The routine Windows gave us which we should use to report events. */
 static LPFN_MOUSEEVENT eventproc;
-/** Current status of the mouse driver. */
-static bool enabled;
+/** Current status of the driver. */
+static struct {
+	/** Whether the driver is currently enabled. */
+	bool enabled : 1;
+#if USE_WHEEL
+	/** Whether a mouse wheel was detected. */
+	bool wheel : 1;
+#endif
+} flags;
 /** Previous deltaX, deltaY from the int33 mouse callback (for relative motion) */
 static short prev_delta_x, prev_delta_y;
+#if USE_WHEEL
+/** Some delay-loaded functions from USER.EXE to provide wheel mouse events. */
+static struct {
+	HINSTANCE hUser;
+	void WINAPI (*GetCursorPos)( POINT FAR * );
+	HWND WINAPI (*WindowFromPoint)( POINT );
+	HWND WINAPI (*GetParent)( HWND );
+	int WINAPI  (*GetClassName)( HWND, LPSTR, int );
+	LONG WINAPI (*GetWindowLong)( HWND, int );
+	BOOL WINAPI (*EnumChildWindows)( HWND, WNDENUMPROC, LPARAM );
+	BOOL WINAPI (*PostMessage)( HWND, UINT, WPARAM, LPARAM );
+} userapi;
+#endif
 
 /* This is how events are delivered to Windows */
 
@@ -47,6 +72,81 @@ static void send_event(unsigned short Status, short deltaX, short deltaY, short 
 #pragma code_seg ( "CALLBACKS" )
 
 #include "dlog.h"
+
+#if USE_WHEEL
+typedef struct {
+	HWND scrollbar;
+} FINDSCROLLBARDATA, FAR * LPFINDSCROLLBARDATA;
+
+static BOOL CALLBACK __loadds find_scrollbar(HWND hWnd, LPARAM lParam)
+{
+	LPFINDSCROLLBARDATA data = (LPFINDSCROLLBARDATA) lParam;
+	char buffer[16];
+
+	userapi.GetClassName(hWnd, &buffer, sizeof(buffer));
+
+	if (_fstrcmp(buffer, "ScrollBar") == 0) {
+		data->scrollbar = hWnd;
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+static void send_wheel_movement(int8_t z)
+{
+	POINT point;
+	HWND hWnd;
+	WPARAM wParam;
+
+#if TRACE_EVENTS
+	dlog_print("w16mouse: wheel=");
+	dlog_printd(z);
+	dlog_endline();
+#endif
+
+	// TODO It's highly unlikely that we can call this many functions from
+	// an interrupt handler without causing a re-entrancy issue somewhere.
+	// Likely it would be better to just move all of this into a hook .DLL
+
+	userapi.GetCursorPos(&point);
+
+	hWnd = userapi.WindowFromPoint(point);
+
+	while (hWnd) {
+		LONG style = userapi.GetWindowLong(hWnd, GWL_STYLE);
+
+		if (style & WS_VSCROLL) {
+			wParam = z < 0 ? SB_LINEUP : SB_LINEDOWN;
+			userapi.PostMessage(hWnd, WM_VSCROLL, wParam, 0);
+			break;
+		} else if (style & WS_HSCROLL) {
+			wParam = z < 0 ? SB_LINELEFT : SB_LINERIGHT;
+			userapi.PostMessage(hWnd, WM_HSCROLL, wParam, 0);
+			break;
+		} else {
+			FINDSCROLLBARDATA data = {0};
+
+			// Let's check if we can find a scroll bar in this window..
+			userapi.EnumChildWindows(hWnd, find_scrollbar, (LONG) (LPVOID) &data);
+			if (data.scrollbar) {
+				// Assume vertical scrolling
+				wParam = z < 0 ? SB_LINEUP : SB_LINEDOWN;
+				userapi.PostMessage(hWnd, WM_VSCROLL, wParam, 0);
+				break;
+			}
+
+			if (style & WS_CHILD) {
+				// Otherwise try again with a parent window
+				hWnd = userapi.GetParent(hWnd);
+			} else {
+				// This was already a topmost
+				break;
+			}
+		}
+	}
+}
+#endif /* USE_WHEEL */
 
 static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t x, int16_t y, int16_t delta_x, int16_t delta_y)
 #pragma aux (INT33_CB) int33_mouse_callback
@@ -77,6 +177,16 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
 	if (events & INT33_EVENT_MASK_MOVEMENT) {
 		status |= SF_MOVEMENT;
 	}
+
+#if USE_WHEEL
+	if (flags.wheel && (events & INT33_EVENT_MASK_WHEEL_MOVEMENT)) {
+		// If wheel API is enabled, higher byte of buttons contains wheel movement
+		int8_t z = (buttons & 0xFF00) >> 8;
+		if (z) {
+			send_wheel_movement(z);
+		}
+	}
+#endif
 
 	if (events & INT33_EVENT_MASK_ABSOLUTE) {
 		status |= SF_ABSOLUTE;
@@ -129,6 +239,9 @@ BOOL FAR PASCAL LibMain(HINSTANCE hInstance, WORD wDataSegment,
 	// For now we just check for the presence of any int33 driver version
 	if (version == 0) {
 		// No one responded to our request, we can assume no driver
+		dos_print_string("To use VBMOUSE.DRV you have to run/install VBMOUSE.EXE first\r\n(or at least any other DOS mouse driver).\r\n\n$");
+		dos_print_string("Press any key to terminate.$");
+		dos_read_character();
 		// This will cause a "can't load .drv" message from Windows
 		return 0;
 	}
@@ -155,8 +268,23 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 	eventproc = lpEventProc;
 	_enable();
 
-	if (!enabled) {
+	if (!flags.enabled) {
 		int33_reset();
+
+#if USE_WHEEL
+		// Detect whether the int33 driver has wheel support
+		flags.wheel = int33_get_capabilities() & 1;
+		if (flags.wheel) {
+			userapi.hUser = (HINSTANCE) GetModuleHandle("USER");
+			userapi.GetCursorPos = (LPVOID) GetProcAddress(userapi.hUser, "GetCursorPos");
+			userapi.WindowFromPoint = (LPVOID) GetProcAddress(userapi.hUser, "WindowFromPoint");
+			userapi.GetParent = (LPVOID) GetProcAddress(userapi.hUser, "GetParent");
+			userapi.GetClassName = (LPVOID) GetProcAddress(userapi.hUser, "GetClassName");
+			userapi.GetWindowLong = (LPVOID) GetProcAddress(userapi.hUser, "GetWindowLong");
+			userapi.EnumChildWindows = (LPVOID) GetProcAddress(userapi.hUser, "EnumChildWindows");
+			userapi.PostMessage = (LPVOID) GetProcAddress(userapi.hUser, "PostMessage");
+		}
+#endif
 
 		// Since the mouse driver will likely not know the Windows resolution,
 		// let's manually set up a large window of coordinates so as to have
@@ -167,16 +295,16 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 
 		int33_set_event_handler(INT33_EVENT_MASK_ALL, int33_mouse_callback);
 
-		enabled = true;
+		flags.enabled = true;
 	}
 }
 
 /** Called by Windows to disable the mouse driver. */
 VOID FAR PASCAL Disable(VOID)
 {
-	if (enabled) {
+	if (flags.enabled) {
 		int33_reset(); // This removes our handler and all other settings
-		enabled = false;
+		flags.enabled = false;
 	}
 }
 

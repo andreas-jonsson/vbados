@@ -248,4 +248,15 @@ static bool int33_get_max_coordinates(int16_t *x, int16_t *y);
 	__value [al] \
 	__modify [ax bx cx dx]
 
+static uint16_t int33_get_capabilities(void);
+#pragma aux int33_get_capabilities = \
+	"mov ax, 0x11" \
+	"int 0x33" \
+	"cmp ax, 0x574D"  /* Compare against the INT33_WHEEL_API_MAGIC number. */ \
+	"je end" \
+	"xor cx, cx"      /* If magic not correct, assume not supported and return 0. */ \
+	"end:" \
+	__value [cx] \
+	__modify [ax bx cx]
+
 #endif /* INT33_H */

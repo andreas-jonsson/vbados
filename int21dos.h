@@ -67,6 +67,25 @@ enum dos_error {
 	DOS_ERROR_CANNOT_MAKE = 82,
 };
 
+// General functions
+static inline void dos_print_string(const char *s);
+#pragma aux dos_print_string = \
+	"mov ah, 0x09" \
+	"int 0x21" \
+	__parm [dx] \
+	__modify [ah]
+
+static inline uint8_t dos_read_character(void);
+#pragma aux dos_read_character = \
+	"mov ah, 0x08" \
+	"int 0x21" \
+	__value [al] \
+	__modify [ax]
+
+// Memory manipulation functions
+
+typedef __segment segment_t;
+
 enum dos_allocation_strategy {
 	DOS_FIT_FIRST    = 0,
 	DOS_FIT_BEST     = 1,
@@ -75,8 +94,6 @@ enum dos_allocation_strategy {
 	DOS_FIT_HIGH     = 0x80,
 	DOS_FIT_HIGHONLY = 0x40,
 };
-
-typedef __segment segment_t;
 
 /** Converts bytes to paragraphs (16 bytes), rounding up. */
 static inline unsigned get_paragraphs(unsigned bytes)
