@@ -1412,6 +1412,22 @@ typedef struct _SHFLDIRINFO
 #define SHFL_LIST_RETURN_ONE    1
 #define SHFL_LIST_RESTART       2
 
+/** Mask of Set/Get bit. */
+#define SHFL_INFO_MODE_MASK    (0x1)
+/** Get information */
+#define SHFL_INFO_GET          (0x0)
+/** Set information */
+#define SHFL_INFO_SET          (0x1)
+
+/** Get name of the object. */
+#define SHFL_INFO_NAME         (0x2)
+/** Set size of object (extend/trucate); only applies to file objects */
+#define SHFL_INFO_SIZE         (0x4)
+/** Get/Set file object info. */
+#define SHFL_INFO_FILE         (0x8)
+/** Get volume information. */
+#define SHFL_INFO_VOLUME       (0x10)
+
 #define SHFL_REMOVE_FILE        (0x1)
 #define SHFL_REMOVE_DIR         (0x2)
 #define SHFL_REMOVE_SYMLINK     (0x4)

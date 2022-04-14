@@ -40,7 +40,10 @@ typedef struct vboxcomm {
 	char buf[VBOX_BUFFER_SIZE];
 	VDSDDS dds;
 } vboxcomm_t;
+typedef vboxcomm_t * PVBOXCOMM;
 typedef vboxcomm_t __far * LPVBOXCOMM;
+
+typedef int32_t vboxerr;
 
 /** Actually send a request to the VirtualBox VMM device.
   * @param addr 32-bit physical address containing the VMMDevRequest struct.
@@ -79,7 +82,7 @@ static void vbox_init_req(VMMDevRequestHeader __far *hdr, VMMDevRequestType type
 
 /** Lets VirtualBox know that there are VirtualBox Guest Additions on this guest.
   * @param osType os installed on this guest. */
-static int32_t vbox_report_guest_info(LPVBOXCOMM vb, uint32_t osType)
+static vboxerr vbox_report_guest_info(LPVBOXCOMM vb, uint32_t osType)
 {
 	VMMDevReportGuestInfo __far *req = (void __far *) vb->buf;
 
@@ -93,7 +96,7 @@ static int32_t vbox_report_guest_info(LPVBOXCOMM vb, uint32_t osType)
 }
 
 /** Tells VirtualBox whether we want absolute mouse information or not. */
-static int32_t vbox_set_mouse(LPVBOXCOMM vb, bool absolute, bool pointer)
+static vboxerr vbox_set_mouse(LPVBOXCOMM vb, bool absolute, bool pointer)
 {
 	VMMDevReqMouseStatus __far *req = (void __far *) vb->buf;
 
@@ -109,7 +112,7 @@ static int32_t vbox_set_mouse(LPVBOXCOMM vb, bool absolute, bool pointer)
 /** Gets the current absolute mouse position from VirtualBox.
   * @param abs false if user has disabled mouse integration in VirtualBox,
   *  in which case we should fallback to PS/2 relative events. */
-static int32_t vbox_get_mouse(LPVBOXCOMM vb, bool __far *abs,
+static vboxerr vbox_get_mouse(LPVBOXCOMM vb, bool __far *abs,
                           uint16_t __far *xpos, uint16_t __far *ypos)
 {
 	VMMDevReqMouseStatus __far *req = (void __far *) vb->buf;
@@ -126,7 +129,7 @@ static int32_t vbox_get_mouse(LPVBOXCOMM vb, bool __far *abs,
 }
 
 /** Asks the host to render the mouse cursor for us. */
-static int32_t vbox_set_pointer_visible(LPVBOXCOMM vb, bool visible)
+static vboxerr vbox_set_pointer_visible(LPVBOXCOMM vb, bool visible)
 {
 	VMMDevReqMousePointer __far *req = (void __far *) vb->buf;
 
@@ -147,7 +150,7 @@ static inline unsigned vbox_req_mouse_pointer_size(unsigned width, unsigned heig
 	return MAX(sizeof(VMMDevReqMousePointer), 24 + 20 + data_size);
 }
 
-static int32_t vbox_idle(LPVBOXCOMM vb)
+static vboxerr vbox_idle(LPVBOXCOMM vb)
 {
 	VMMDevReqIdle __far *req = (void __far *) vb->buf;
 

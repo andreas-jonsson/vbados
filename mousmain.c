@@ -98,8 +98,6 @@ static int set_virtualbox_integration(LPTSRDATA data, bool enable)
 			return err;
 		}
 
-		printf("Found VirtualBox device at IO 0x%x\n", data->vb.iobase);
-
 		err = vbox_init_buffer(&data->vb);
 		if (err) {
 			fprintf(stderr, "Cannot lock buffer used for VirtualBox communication, err=%d\n", err);

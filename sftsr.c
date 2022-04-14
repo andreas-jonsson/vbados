@@ -135,7 +135,7 @@ static void set_dos_err(union INTPACK __far *r, int err)
 	r->x.ax = err;
 }
 
-static int vbox_err_to_dos(int32_t err)
+static int vbox_err_to_dos(vboxerr err)
 {
 	switch (err) {
 	case VINF_SUCCESS:
@@ -156,12 +156,15 @@ static int vbox_err_to_dos(int32_t err)
 		return DOS_ERROR_TOO_MANY_OPEN_FILES;
 	case VERR_WRITE_PROTECT:
 		return DOS_ERROR_WRITE_PROTECT;
+	case VERR_NOT_A_DIRECTORY:
+	case VERR_DIR_NOT_EMPTY: // Behavior seen in real DOS
+		return DOS_ERROR_PATH_NOT_FOUND;
 	default:
 		return DOS_ERROR_GEN_FAILURE;
 	}
 }
 
-static void set_vbox_err(union INTPACK __far *r, int32_t err)
+static void set_vbox_err(union INTPACK __far *r, vboxerr err)
 {
 	dlog_print("->vbox error ");
 	if (err < INT16_MIN || err > INT16_MAX) {
@@ -325,7 +328,7 @@ static void handle_create_open_ex(union INTPACK __far *r)
 	unsigned int action, mode;
 	unsigned openfile;
 	bool save_result;
-	int32_t err;
+	vboxerr err;
 
 	switch (r->h.al) {
 	case DOS_FN_CREATE:
@@ -446,7 +449,7 @@ static void handle_close(union INTPACK __far *r)
 {
 	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
 	unsigned openfile = get_sft_openfile_index(sft);
-	int32_t err;
+	vboxerr err;
 
 	dlog_print("handle_close openfile=");
 	dlog_printu(openfile);
@@ -479,7 +482,7 @@ static void handle_read(union INTPACK __far *r)
 	uint8_t __far *buffer = data.dossda->cur_dta;
 	unsigned long offset = sft->f_pos;
 	unsigned bytes = r->x.cx;
-	int32_t err;
+	vboxerr err;
 
 	dlog_print("handle_read openfile=");
 	dlog_printu(openfile);
@@ -518,7 +521,7 @@ static void handle_write(union INTPACK __far *r)
 	uint8_t __far *buffer = data.dossda->cur_dta;
 	unsigned long offset = sft->f_pos;
 	unsigned bytes = r->x.cx;
-	int32_t err;
+	vboxerr err;
 
 	dlog_print("handle_write openfile=");
 	dlog_printu(openfile);
@@ -562,7 +565,7 @@ static void handle_lock(union INTPACK __far *r)
 	unsigned flags = (unlock ? SHFL_LOCK_CANCEL : SHFL_LOCK_EXCLUSIVE)
 	        | SHFL_LOCK_WAIT | SHFL_LOCK_PARTIAL;
 	DOSLOCK __far *ops = MK_FP(r->x.ds, r->x.dx);
-	int32_t err;
+	vboxerr err;
 
 	dlog_print("handle_lock ");
 	if (unlock) dlog_print("unlock");
@@ -585,7 +588,7 @@ static void handle_lock(union INTPACK __far *r)
 
 static void handle_close_all(union INTPACK __far *r)
 {
-	int32_t err;
+	vboxerr err;
 	unsigned i;
 
 	dlog_puts("handle_close_all");
@@ -612,7 +615,7 @@ static void handle_delete(union INTPACK __far *r)
 	const char __far *path = data.dossda->fn1;
 	int drive = drive_letter_to_index(path[0]);
 	SHFLROOT root = data.drives[drive].root;
-	int32_t err;
+	vboxerr err;
 
 	dlog_print("handle_delete ");
 	dlog_fprint(path);
@@ -638,7 +641,7 @@ static void handle_rename(union INTPACK __far *r)
 	const char __far *dst = data.dossda->fn2;
 	int dstdrive = drive_letter_to_index(dst[0]);
 	SHFLROOT root = data.drives[srcdrive].root;
-	int32_t err;
+	vboxerr err;
 
 	dlog_print("handle_rename ");
 	dlog_fprint(src);
@@ -675,7 +678,7 @@ static void handle_getattr(union INTPACK __far *r)
 	const char __far *path = data.dossda->fn1;
 	int drive = drive_letter_to_index(path[0]);
 	SHFLROOT root = data.drives[drive].root;
-	int32_t err;
+	vboxerr err;
 
 	dlog_print("handle_getattr ");
 	dlog_fprint(path);
@@ -709,9 +712,9 @@ static void handle_getattr(union INTPACK __far *r)
 }
 
 
-static int32_t open_search_dir(SHFLROOT root, const char __far *path)
+static vboxerr open_search_dir(SHFLROOT root, const char __far *path)
 {
-	int32_t err;
+	vboxerr err;
 
 	dlog_puts("open_search_dir");
 
@@ -752,7 +755,7 @@ static int32_t open_search_dir(SHFLROOT root, const char __far *path)
 
 static void close_search_dir()
 {
-	int32_t err;
+	vboxerr err;
 
 	if (data.files[SEARCH_DIR_FILE].root == SHFL_ROOT_NIL) {
 		// Already closed
@@ -776,10 +779,10 @@ static inline bool is_search_dir_open()
 }
 
 /** Simulates a directory entry with the current volume label. */
-static int32_t find_volume_label(SHFLROOT root)
+static vboxerr find_volume_label(SHFLROOT root)
 {
 	DOSDIR __far *found_file = &data.dossda->found_file;
-	int32_t err;
+	vboxerr err;
 
 	shflstring_clear(&shflstr.shflstr);
 
@@ -803,10 +806,10 @@ static int32_t find_volume_label(SHFLROOT root)
 }
 
 /** Gets and fills in the next directory entry from VirtualBox. */
-static int32_t find_next_from_vbox(uint8_t search_attr)
+static vboxerr find_next_from_vbox(uint8_t search_attr)
 {
 	DOSDIR __far *found_file = &data.dossda->found_file;
-	int32_t err;
+	vboxerr err;
 
 	if (!is_search_dir_open()) {
 		dlog_puts("find_next called, but no opendir handle");
@@ -870,7 +873,7 @@ static void handle_find(union INTPACK __far *r)
 	SHFLROOT root = data.drives[drive].root;
 	DOSDIR __far *found_file = &data.dossda->found_file;
 	uint8_t search_attr;
-	int32_t err;
+	vboxerr err;
 
 	if (r->h.al == DOS_FN_FIND_FIRST) {
 		search_attr = data.dossda->search_attr;
@@ -952,7 +955,7 @@ static void handle_chdir(union INTPACK __far *r)
 	const char __far *path = data.dossda->fn1;
 	int drive = drive_letter_to_index(path[0]);
 	SHFLROOT root = data.drives[drive].root;
-	int32_t err;
+	vboxerr err;
 
 	dlog_print("handle_chdir to ");
 	dlog_fprint(path);
@@ -995,7 +998,7 @@ static void handle_mkdir(union INTPACK __far *r)
 	const char __far *path = data.dossda->fn1;
 	int drive = drive_letter_to_index(path[0]);
 	SHFLROOT root = data.drives[drive].root;
-	int32_t err;
+	vboxerr err;
 
 	dlog_print("handle_mkdir ");
 	dlog_fprint(path);
@@ -1035,7 +1038,7 @@ static void handle_rmdir(union INTPACK __far *r)
 	const char __far *path = data.dossda->fn1;
 	int drive = drive_letter_to_index(path[0]);
 	SHFLROOT root = data.drives[drive].root;
-	int32_t err;
+	vboxerr err;
 
 	dlog_print("handle_rmdir ");
 	dlog_fprint(path);

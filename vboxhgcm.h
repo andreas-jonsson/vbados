@@ -34,7 +34,7 @@ static void vbox_hgcm_wait(VMMDevHGCMRequestHeader __far * req)
 	}
 }
 
-static int32_t vbox_hgcm_connect_existing(LPVBOXCOMM vb, const char *service, hgcm_client_id_t __far *client_id)
+static vboxerr vbox_hgcm_connect_existing(LPVBOXCOMM vb, const char *service, hgcm_client_id_t __far *client_id)
 {
 	VMMDevHGCMConnect __far *req = (void __far *) vb->buf;
 
@@ -57,7 +57,7 @@ static int32_t vbox_hgcm_connect_existing(LPVBOXCOMM vb, const char *service, hg
 	return req->header.result;
 }
 
-static int32_t vbox_hgcm_disconnect(LPVBOXCOMM vb, hgcm_client_id_t client_id)
+static vboxerr vbox_hgcm_disconnect(LPVBOXCOMM vb, hgcm_client_id_t client_id)
 {
 	VMMDevHGCMDisconnect __far *req = (void __far *) vb->buf;
 
@@ -75,12 +75,54 @@ static int32_t vbox_hgcm_disconnect(LPVBOXCOMM vb, hgcm_client_id_t client_id)
 	return req->header.result;
 }
 
-static inline void vbox_hgcm_init_call(VMMDevHGCMCall __far *req, hgcm_client_id_t client_id, uint32_t function, unsigned narg)
+static void vbox_hgcm_init_call(VMMDevHGCMCall __far *req, hgcm_client_id_t client_id, uint32_t function, unsigned narg)
 {
 	vbox_init_req(&req->header.header, VMMDevReq_HGCMCall32, sizeof(VMMDevHGCMCall) + (narg * sizeof(HGCMFunctionParameter)));
 	req->u32ClientID = client_id;
 	req->u32Function = function;
 	req->cParms = narg;
+}
+
+static vboxerr vbox_hgcm_do_call_sync(LPVBOXCOMM vb, VMMDevHGCMCall __far *req)
+{
+	vbox_send_request(vb->iobase, vb->dds.physicalAddress);
+
+	if (req->header.header.rc < 0) {
+		return req->header.header.rc;
+	} else if (req->header.header.rc == VINF_HGCM_ASYNC_EXECUTE) {
+		vbox_hgcm_wait(&req->header);
+	}
+
+	return 0;
+}
+
+static void vbox_hgcm_set_parameter_uint32(VMMDevHGCMCall __far *req, unsigned arg, uint32_t value)
+{
+	req->aParms[arg].type = VMMDevHGCMParmType_32bit;
+	req->aParms[arg].u.value32 = value;
+}
+
+static inline uint32_t vbox_hgcm_get_parameter_uint32(VMMDevHGCMCall __far *req, unsigned arg)
+{
+	return req->aParms[arg].u.value32;
+}
+
+static void vbox_hgcm_set_parameter_uint64(VMMDevHGCMCall __far *req, unsigned arg, uint64_t value)
+{
+	req->aParms[arg].type = VMMDevHGCMParmType_64bit;
+	req->aParms[arg].u.value64 = value;
+}
+
+static inline uint64_t vbox_hgcm_get_parameter_uint64(VMMDevHGCMCall __far *req, unsigned arg)
+{
+	return req->aParms[arg].u.value64;
+}
+
+static void vbox_hgcm_set_parameter_pointer(VMMDevHGCMCall __far *req, unsigned arg, unsigned size, void __far *ptr)
+{
+	req->aParms[arg].type = VMMDevHGCMParmType_LinAddr;
+	req->aParms[arg].u.LinAddr.cb = size;
+	req->aParms[arg].u.LinAddr.uAddr = linear_addr(ptr);
 }
 
 #endif // VBOXHGCM_H
