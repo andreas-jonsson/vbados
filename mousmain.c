@@ -49,6 +49,9 @@ static int set_wheel(LPTSRDATA data, bool enable)
 
 	if (data->usewheel) {
 		detect_wheel(data);
+		if (!data->haswheel) {
+			fprintf(stderr, "Could not find PS/2 wheel mouse\n");
+		}
 	} else {
 		data->haswheel = false;
 	}

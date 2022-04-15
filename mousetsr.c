@@ -947,11 +947,13 @@ static void reset_mouse_hardware()
 
 #if USE_WHEEL
 	if (data.usewheel && ps2m_detect_wheel()) {
-		// Detect wheel also reinitializes the mouse to the proper packet size
+		dlog_puts("PS/2 wheel detected");
 		data.haswheel = true;
+		// Detect wheel also reinitializes the mouse to the proper packet size
 	} else {
-		// Otherwise do an extra reset to return back to initial state, just in case
+		dlog_puts("PS/2 wheel NOT detected");
 		data.haswheel = false;
+		// Otherwise do an extra reset to return back to initial state, just in case
 		ps2m_init(PS2M_PACKET_SIZE_PLAIN);
 	}
 #else
