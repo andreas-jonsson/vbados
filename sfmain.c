@@ -319,6 +319,21 @@ static int unmount_all(LPTSRDATA data)
 	return err;
 }
 
+static int rescan(LPTSRDATA data)
+{
+	int err;
+
+	if ((err = unmount_all(data))) {
+		return err;
+	}
+
+	if ((err = automount(data))) {
+		return err;
+	}
+
+	return 0;
+}
+
 static int configure_driver(LPTSRDATA data)
 {
 	unsigned i;
@@ -342,7 +357,6 @@ static int configure_driver(LPTSRDATA data)
 		printf("Using timezone from TZ variable (%s)\n", tzname[0]);
 		data->tz_offset = timezone / 2;
 	} else {
-		printf("No TZ environment variable\n");
 		data->tz_offset = 0;
 	}
 
@@ -481,6 +495,7 @@ static void print_help(void)
 	    "    list               list available shared folders\n"
 	    "    mount <FOLD> <X:>  mount a shared folder into drive X:\n"
 	    "    umount <X:>        unmount shared folder from drive X:\n"
+	    "    rescan             unmount everything and recreate automounts\n"
 	);
 }
 
@@ -525,8 +540,6 @@ int main(int argc, const char *argv[])
 	LPTSRDATA data = get_tsr_data(true);
 	int err, argi = 1;
 
-	//printf("\nVBSF %x.%x\n", VERSION_MAJOR, VERSION_MINOR);
-
 	if (argi >= argc || stricmp(argv[argi], "install") == 0) {
 		bool high = true;
 
@@ -540,6 +553,8 @@ int main(int argc, const char *argv[])
 				return invalid_arg(argv[argi]);
 			}
 		}
+
+		printf("\nVBSharedFolders %x.%x\n", VERSION_MAJOR, VERSION_MINOR);
 
 		if (data) {
 			printf("VBSF already installed\n");
@@ -596,6 +611,9 @@ int main(int argc, const char *argv[])
 		if (!drive) return invalid_arg(argv[argi]);
 
 		return unmount(data, drive);
+	} else if (stricmp(argv[argi], "rescan") == 0) {
+		if (!data) return driver_not_found();
+		return rescan(data);
 	} else {
 		return invalid_arg(argv[argi]);
 	}

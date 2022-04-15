@@ -39,6 +39,13 @@
 /** Trace events verbosily */
 #define TRACE_EVENTS 0
 
+#define VERSION_MAJOR 0
+#define VERSION_MINOR 5
+
+/** The report MS MOUSE compatible version to programs who ask for it. */
+#define REPORTED_VERSION_MAJOR 6
+#define REPORTED_VERSION_MINOR 0x30
+
 // End of user customizable defines
 
 #define USE_INTEGRATION (USE_VIRTUALBOX || USE_VMWARE)
@@ -50,11 +57,6 @@
 #define GRAPHIC_CURSOR_SCANLINE_LEN 2
 #define GRAPHIC_CURSOR_MASK_LEN (GRAPHIC_CURSOR_HEIGHT * GRAPHIC_CURSOR_SCANLINE_LEN)
 #define GRAPHIC_CURSOR_DATA_LEN (2 * GRAPHIC_CURSOR_MASK_LEN)
-
-#define VERSION_MAJOR 0
-#define VERSION_MINOR 4
-#define REPORTED_VERSION_MAJOR 6
-#define REPORTED_VERSION_MINOR 0x30
 
 #if USE_VIRTUALBOX
 #include "vbox.h"
