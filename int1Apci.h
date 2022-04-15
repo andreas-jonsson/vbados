@@ -17,10 +17,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-#ifndef PCI_H
-#define PCI_H
+#ifndef INT1APCI_H
+#define INT1APCI_H
 
-typedef unsigned char  pcierr;
+typedef unsigned char pcierr;
 enum {
 	PCI_SUCCESSFUL = 0,
 	PCI_GENERIC_ERROR = 1,
@@ -32,7 +32,7 @@ enum {
 	PCI_BUFFER_TOO_SMALL = 0x89
 };
 
-typedef unsigned short  pcisel;
+typedef unsigned short pcisel;
 
 static pcierr pci_init_bios(void);
 #pragma aux pci_init_bios = \
@@ -119,4 +119,4 @@ static pcierr pci_write_config_dword(pcisel sel, unsigned char reg, unsigned lon
 	__value [ah] \
 	__modify [ax cx]
 
-#endif
+#endif /* INT1APCI_H */

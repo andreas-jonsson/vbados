@@ -24,7 +24,7 @@
 
 // Customizable defines
 /** If 0, these routines become nops */
-#define ENABLE_DLOG 1
+#define ENABLE_DLOG 0
 /** 1 means target serial port, 0 means target IO port. */
 #define DLOG_TARGET_SERIAL 0
 /** IO port to target.

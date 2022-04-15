@@ -17,8 +17,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-#ifndef VDS_H
-#define VDS_H
+#ifndef INT4BVDS_H
+#define INT4BVDS_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -159,4 +159,4 @@ static vdserr vds_release_dma_buffer(VDSDDS __far * dds, unsigned char flags);
 	__value [al] \
 	__modify [ax]
 
-#endif
+#endif /* INT4BVDS_H */

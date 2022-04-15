@@ -27,7 +27,7 @@
 #include <string.h>
 
 #include "dlog.h"
-#include "vds.h"
+#include "int4Bvds.h"
 #include "utils.h"
 #include "vboxdev.h"
 

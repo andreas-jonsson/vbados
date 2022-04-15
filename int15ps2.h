@@ -17,8 +17,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-#ifndef PS2_H
-#define PS2_H
+#ifndef INT15PS2_H
+#define INT15PS2_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -232,4 +232,4 @@ static bool ps2m_detect_wheel(void)
 	return err == 0 && device_id == PS2M_DEVICE_ID_IMPS2;
 }
 
-#endif
+#endif /* INT15PS2_H */

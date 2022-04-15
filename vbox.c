@@ -24,8 +24,8 @@
 
 #include "dlog.h"
 #include "utils.h"
-#include "pci.h"
-#include "vds.h"
+#include "int1Apci.h"
+#include "int4Bvds.h"
 #include "vboxdev.h"
 #include "vbox.h"
 

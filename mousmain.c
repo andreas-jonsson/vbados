@@ -26,7 +26,7 @@
 #include "dlog.h"
 #include "int33.h"
 #include "int21dos.h"
-#include "ps2.h"
+#include "int15ps2.h"
 #include "vbox.h"
 #include "vmware.h"
 #include "dostsr.h"

@@ -22,7 +22,7 @@
 #include <i86.h>
 
 #include "dlog.h"
-#include "ps2.h"
+#include "int15ps2.h"
 #include "int10vga.h"
 #include "int16kbd.h"
 #include "int2fwin.h"
