@@ -33,6 +33,12 @@
 /** Maximum number of open files */
 #define NUM_FILES     40
 
+/** Parameters used for returning disk geometry.
+ *  For compatibility, better if sector_per_cluster * bytes_per_sector <= 32K. */
+#define SECTORS_PER_CLUSTER      8
+#define BYTES_PER_SECTOR         4096
+#define BYTES_PER_CLUSTER        (SECTORS_PER_CLUSTER * BYTES_PER_SECTOR)
+
 /** Directory enumeration needs an open file, this is its index in the "openfile" table. */
 #define SEARCH_DIR_FILE 0
 

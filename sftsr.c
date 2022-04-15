@@ -147,6 +147,9 @@ static int vbox_err_to_dos(vboxerr err)
 		return DOS_ERROR_INVALID_FUNCTION;
 	case VERR_INVALID_HANDLE:
 		return DOS_ERROR_INVALID_HANDLE;
+	case VERR_ACCESS_DENIED:
+	case VERR_PERMISSION_DENIED:
+		return DOS_ERROR_ACCESS_DENIED;
 	case VERR_FILE_NOT_FOUND:
 		return DOS_ERROR_FILE_NOT_FOUND;
 	case VERR_PATH_NOT_FOUND:
@@ -162,6 +165,8 @@ static int vbox_err_to_dos(vboxerr err)
 	case VERR_NOT_A_DIRECTORY:
 	case VERR_DIR_NOT_EMPTY: // Behavior seen in real DOS
 		return DOS_ERROR_PATH_NOT_FOUND;
+	case VERR_IO_GEN_FAILURE:
+		return DOS_ERROR_NOT_READY;
 	default:
 		return DOS_ERROR_GEN_FAILURE;
 	}
@@ -1060,23 +1065,48 @@ static void handle_rmdir(union INTPACK __far *r)
 	clear_dos_err(r);
 }
 
+static uint16_t disk_bytes_to_clusters(uint64_t bytes);
+#if BYTES_PER_CLUSTER == 32768
+// Avoid the 64-bit divide by hardcoding the following:
+#pragma aux disk_bytes_to_clusters = \
+	"shrd dx, cx, 15" /* Just need to shift everything by 15 bits to do the division. */ \
+	"shrd cx, bx, 15" \
+	"shrd bx, ax, 15" \
+	"shr  ax,     15" \
+	"or ax, bx"  /* Now we need to take the lower 16bits, so if any of the upper bits is set (ax:bx:cx), overflow. */ \
+	"or ax, cx" \
+	"jz end" \
+	"overflow:" \
+	"mov dx, 0xFFFF" \
+	"end:" \
+	__parm [ax bx cx dx] \
+	__value [dx] \
+	__modify [ax bx cx dx]
+#endif
+
 static void handle_get_disk_free(union INTPACK __far *r)
 {
-	const unsigned long total_space = 10 * 1024 * 1024UL;
-	const unsigned long free_space = 4 * 1024 * 1024UL;
-	const unsigned cluster_bytes = 4 * 4096UL;
+	const char __far *path = data.dossda->drive_cds->curr_path; // Use the current path
+	int drive = drive_letter_to_index(path[0]);
+	SHFLROOT root = data.drives[drive].root;
+	unsigned buf_size = sizeof(SHFLVOLINFO);
+	vboxerr err;
 
-	// TODO SHFLVOLINFO
+	dlog_puts("handle disk free");
+
+	// Ask VirtualBox for disk space info
+	err = vbox_shfl_info(&data.vb, data.hgcm_client_id, root, SHFL_HANDLE_ROOT,
+	                     SHFL_INFO_GET | SHFL_INFO_VOLUME, &buf_size, &parms.volinfo);
+	if (err) {
+		set_vbox_err(r, err);
+		return;
+	}
 
 	r->h.ah = 0; // media ID byte
-	r->h.al = 4; /* Sectors per cluster */
-	r->x.cx = 4096; /* Bytes per sector */
-	r->x.bx = total_space / cluster_bytes; /* Total clusters */
-	r->x.dx = free_space / cluster_bytes;  /* Number of available clusters */
-
-	dlog_print("disk free");
-	dlog_printd(r->x.dx);
-	dlog_endline();
+	r->h.al = SECTORS_PER_CLUSTER;
+	r->x.cx = BYTES_PER_SECTOR;
+	r->x.bx = disk_bytes_to_clusters(parms.volinfo.ullTotalAllocationBytes);
+	r->x.dx = disk_bytes_to_clusters(parms.volinfo.ullAvailableAllocationBytes);
 
 	clear_dos_err(r);
 }

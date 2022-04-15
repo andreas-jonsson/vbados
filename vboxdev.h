@@ -77,6 +77,218 @@
 /** Invalid flags was given. */
 #define VERR_INVALID_FLAGS                  (-13)
 
+/** Not equal. */
+#define VERR_NOT_EQUAL                      (-18)
+/** The specified path does not point at a symbolic link. */
+#define VERR_NOT_SYMLINK                    (-19)
+/** Failed to allocate temporary memory. */
+#define VERR_NO_TMP_MEMORY                  (-20)
+/** Invalid file mode mask (RTFMODE). */
+#define VERR_INVALID_FMODE                  (-21)
+/** Incorrect call order. */
+#define VERR_WRONG_ORDER                    (-22)
+/** There is no TLS (thread local storage) available for storing the current thread. */
+#define VERR_NO_TLS_FOR_SELF                (-23)
+/** Failed to set the TLS (thread local storage) entry which points to our thread structure. */
+#define VERR_FAILED_TO_SET_SELF_TLS         (-24)
+/** Not able to allocate contiguous memory. */
+#define VERR_NO_CONT_MEMORY                 (-26)
+/** No memory available for page table or page directory. */
+#define VERR_NO_PAGE_MEMORY                 (-27)
+/** Already initialized. */
+#define VINF_ALREADY_INITIALIZED            28
+/** The specified thread is dead. */
+#define VERR_THREAD_IS_DEAD                 (-29)
+/** The specified thread is not waitable. */
+#define VERR_THREAD_NOT_WAITABLE            (-30)
+/** Pagetable not present. */
+#define VERR_PAGE_TABLE_NOT_PRESENT         (-31)
+/** Invalid context.
+ * Typically an API was used by the wrong thread. */
+#define VERR_INVALID_CONTEXT                (-32)
+/** The per process timer is busy. */
+#define VERR_TIMER_BUSY                     (-33)
+/** Address conflict. */
+#define VERR_ADDRESS_CONFLICT               (-34)
+/** Unresolved (unknown) host platform error. */
+#define VERR_UNRESOLVED_ERROR               (-35)
+/** Invalid function. */
+#define VERR_INVALID_FUNCTION               (-36)
+/** Not supported. */
+#define VERR_NOT_SUPPORTED                  (-37)
+/** Not supported. */
+#define VINF_NOT_SUPPORTED                  37
+/** Access denied. */
+#define VERR_ACCESS_DENIED                  (-38)
+/** Call interrupted. */
+#define VERR_INTERRUPTED                    (-39)
+/** Call interrupted. */
+#define VINF_INTERRUPTED                    39
+/** Timeout. */
+#define VERR_TIMEOUT                        (-40)
+/** Timeout. */
+#define VINF_TIMEOUT                        40
+/** Buffer too small to save result. */
+#define VERR_BUFFER_OVERFLOW                (-41)
+/** Buffer too small to save result. */
+#define VINF_BUFFER_OVERFLOW                41
+/** Data size overflow. */
+#define VERR_TOO_MUCH_DATA                  (-42)
+/** Max threads number reached. */
+#define VERR_MAX_THRDS_REACHED              (-43)
+/** Max process number reached. */
+#define VERR_MAX_PROCS_REACHED              (-44)
+/** The recipient process has refused the signal. */
+#define VERR_SIGNAL_REFUSED                 (-45)
+/** A signal is already pending. */
+#define VERR_SIGNAL_PENDING                 (-46)
+/** The signal being posted is not correct. */
+#define VERR_SIGNAL_INVALID                 (-47)
+/** The state changed.
+ * This is a generic error message and needs a context to make sense. */
+#define VERR_STATE_CHANGED                  (-48)
+/** Warning, the state changed.
+ * This is a generic error message and needs a context to make sense. */
+#define VWRN_STATE_CHANGED                  48
+/** Error while parsing UUID string */
+#define VERR_INVALID_UUID_FORMAT            (-49)
+/** The specified process was not found. */
+#define VERR_PROCESS_NOT_FOUND              (-50)
+/** The process specified to a non-block wait had not exited. */
+#define VERR_PROCESS_RUNNING                (-51)
+/** Retry the operation. */
+#define VERR_TRY_AGAIN                      (-52)
+/** Retry the operation. */
+#define VINF_TRY_AGAIN                      52
+/** Generic parse error. */
+#define VERR_PARSE_ERROR                    (-53)
+/** Value out of range. */
+#define VERR_OUT_OF_RANGE                   (-54)
+/** A numeric conversion encountered a value which was too big for the target. */
+#define VERR_NUMBER_TOO_BIG                 (-55)
+/** A numeric conversion encountered a value which was too big for the target. */
+#define VWRN_NUMBER_TOO_BIG                 55
+/** The number begin converted (string) contained no digits. */
+#define VERR_NO_DIGITS                      (-56)
+/** The number begin converted (string) contained no digits. */
+#define VWRN_NO_DIGITS                      56
+/** Encountered a '-' during conversion to an unsigned value. */
+#define VERR_NEGATIVE_UNSIGNED              (-57)
+/** Encountered a '-' during conversion to an unsigned value. */
+#define VWRN_NEGATIVE_UNSIGNED              57
+/** Error while characters translation (unicode and so). */
+#define VERR_NO_TRANSLATION                 (-58)
+/** Error while characters translation (unicode and so). */
+#define VWRN_NO_TRANSLATION                 58
+/** Encountered unicode code point which is reserved for use as endian indicator (0xffff or 0xfffe). */
+#define VERR_CODE_POINT_ENDIAN_INDICATOR    (-59)
+/** Encountered unicode code point in the surrogate range (0xd800 to 0xdfff). */
+#define VERR_CODE_POINT_SURROGATE           (-60)
+/** A string claiming to be UTF-8 is incorrectly encoded. */
+#define VERR_INVALID_UTF8_ENCODING          (-61)
+/** A string claiming to be in UTF-16 is incorrectly encoded. */
+#define VERR_INVALID_UTF16_ENCODING         (-62)
+/** Encountered a unicode code point which cannot be represented as UTF-16. */
+#define VERR_CANT_RECODE_AS_UTF16           (-63)
+/** Got an out of memory condition trying to allocate a string. */
+#define VERR_NO_STR_MEMORY                  (-64)
+/** Got an out of memory condition trying to allocate a UTF-16 (/UCS-2) string. */
+#define VERR_NO_UTF16_MEMORY                (-65)
+/** Get an out of memory condition trying to allocate a code point array. */
+#define VERR_NO_CODE_POINT_MEMORY           (-66)
+/** Can't free the memory because it's used in mapping. */
+#define VERR_MEMORY_BUSY                    (-67)
+/** The timer can't be started because it's already active. */
+#define VERR_TIMER_ACTIVE                   (-68)
+/** The timer can't be stopped because it's already suspended. */
+#define VERR_TIMER_SUSPENDED                (-69)
+/** The operation was cancelled by the user (copy) or another thread (local ipc). */
+#define VERR_CANCELLED                      (-70)
+/** Failed to initialize a memory object.
+ * Exactly what this means is OS specific. */
+#define VERR_MEMOBJ_INIT_FAILED             (-71)
+/** Out of memory condition when allocating memory with low physical backing. */
+#define VERR_NO_LOW_MEMORY                  (-72)
+/** Out of memory condition when allocating physical memory (without mapping). */
+#define VERR_NO_PHYS_MEMORY                 (-73)
+/** The address (virtual or physical) is too big. */
+#define VERR_ADDRESS_TOO_BIG                (-74)
+/** Failed to map a memory object. */
+#define VERR_MAP_FAILED                     (-75)
+/** Trailing characters. */
+#define VERR_TRAILING_CHARS                 (-76)
+/** Trailing characters. */
+#define VWRN_TRAILING_CHARS                 76
+/** Trailing spaces. */
+#define VERR_TRAILING_SPACES                (-77)
+/** Trailing spaces. */
+#define VWRN_TRAILING_SPACES                77
+/** Generic not found error. */
+#define VERR_NOT_FOUND                      (-78)
+/** Generic not found warning. */
+#define VWRN_NOT_FOUND                      78
+/** Generic invalid state error. */
+#define VERR_INVALID_STATE                  (-79)
+/** Generic invalid state warning. */
+#define VWRN_INVALID_STATE                  79
+/** Generic out of resources error. */
+#define VERR_OUT_OF_RESOURCES               (-80)
+/** Generic out of resources warning. */
+#define VWRN_OUT_OF_RESOURCES               80
+/** No more handles available, too many open handles. */
+#define VERR_NO_MORE_HANDLES                (-81)
+/** Preemption is disabled.
+ * The requested operation can only be performed when preemption is enabled. */
+#define VERR_PREEMPT_DISABLED               (-82)
+/** End of string. */
+#define VERR_END_OF_STRING                  (-83)
+/** End of string. */
+#define VINF_END_OF_STRING                  83
+/** A page count is out of range. */
+#define VERR_PAGE_COUNT_OUT_OF_RANGE        (-84)
+/** Generic object destroyed status. */
+#define VERR_OBJECT_DESTROYED               (-85)
+/** Generic object was destroyed by the call status. */
+#define VINF_OBJECT_DESTROYED               85
+/** Generic dangling objects status. */
+#define VERR_DANGLING_OBJECTS               (-86)
+/** Generic dangling objects status. */
+#define VWRN_DANGLING_OBJECTS               86
+/** Invalid Base64 encoding. */
+#define VERR_INVALID_BASE64_ENCODING        (-87)
+/** Return instigated by a callback or similar. */
+#define VERR_CALLBACK_RETURN                (-88)
+/** Return instigated by a callback or similar. */
+#define VINF_CALLBACK_RETURN                88
+/** Authentication failure. */
+#define VERR_AUTHENTICATION_FAILURE         (-89)
+/** Not a power of two. */
+#define VERR_NOT_POWER_OF_TWO               (-90)
+/** Status code, typically given as a parameter, that isn't supposed to be used. */
+#define VERR_IGNORED                        (-91)
+/** Concurrent access to the object is not allowed. */
+#define VERR_CONCURRENT_ACCESS              (-92)
+/** The caller does not have a reference to the object.
+ * This status is used when two threads is caught sharing the same object
+ * reference. */
+#define VERR_CALLER_NO_REFERENCE            (-93)
+/** Generic no change error. */
+#define VERR_NO_CHANGE                      (-95)
+/** Generic no change info. */
+#define VINF_NO_CHANGE                      95
+/** Out of memory condition when allocating executable memory. */
+#define VERR_NO_EXEC_MEMORY                 (-96)
+/** The alignment is not supported. */
+#define VERR_UNSUPPORTED_ALIGNMENT          (-97)
+/** The alignment is not really supported, however we got lucky with this
+ * allocation. */
+#define VINF_UNSUPPORTED_ALIGNMENT          97
+/** Duplicate something. */
+#define VERR_DUPLICATE                      (-98)
+/** Something is missing. */
+#define VERR_MISSING                        (-99)
+/** An unexpected (/unknown) exception was caught. */
+
 #define VERR_FILE_IO_ERROR                  (-100)
 /** File/Device open failed. */
 #define VERR_OPEN_FAILED                    (-101)
