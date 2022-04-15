@@ -353,7 +353,7 @@ static int configure_driver(LPTSRDATA data)
 		return -1;
 	}
 
-	err = vbox_init_buffer(&data->vb);
+	err = vbox_init_buffer(&data->vb, VBOX_BUFFER_SIZE);
 	if (err) {
 		fprintf(stderr, "Cannot lock buffer used for VirtualBox communication, err=%ld\n", err);
 		return -1;

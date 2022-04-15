@@ -31,14 +31,17 @@
 #include "utils.h"
 #include "vboxdev.h"
 
-/** Size of the VBox buffer. The maximum message length that may be sent. */
-// Enough to fit a set_pointer_shape message with a 16x16 cursor
-#define VBOX_BUFFER_SIZE (1024 + 32 + 24 + 20)
-
+/** Struct containing all the information required to send a VirtualBox message. */
 typedef struct vboxcomm {
+	/** The IO port of the VirtualBox pci device, found by vbox_init_device(). */
 	uint16_t iobase;
-	char buf[VBOX_BUFFER_SIZE];
+	/** Whether we are using VDS or not. */
+	bool vds;
+	/** The VDS (Virtual DMA service) descriptor corresponding to the buffer that we will use.
+	 *  Initialized by vbox_init_buffer(), even if we don't use VDS. */
 	VDSDDS dds;
+	/** We assume the actual buffer comes in memory after this struct. */
+	char buf[];
 } vboxcomm_t;
 typedef vboxcomm_t * PVBOXCOMM;
 typedef vboxcomm_t __far * LPVBOXCOMM;
@@ -65,7 +68,7 @@ extern int vbox_init_device(LPVBOXCOMM vb);
 
 /** Prepares the buffer used for communicating with VBox and
  *  computes its physical address (using VDS if necessary). */
-extern int vbox_init_buffer(LPVBOXCOMM vb);
+extern int vbox_init_buffer(LPVBOXCOMM vb, unsigned size);
 
 /** Releases/unlocks buffer, no further use possible. */
 extern int vbox_release_buffer(LPVBOXCOMM vb);

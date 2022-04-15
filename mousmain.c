@@ -98,7 +98,7 @@ static int set_virtualbox_integration(LPTSRDATA data, bool enable)
 			return err;
 		}
 
-		err = vbox_init_buffer(&data->vb);
+		err = vbox_init_buffer(&data->vb, VBOX_BUFFER_SIZE);
 		if (err) {
 			fprintf(stderr, "Cannot lock buffer used for VirtualBox communication, err=%d\n", err);
 			return err;

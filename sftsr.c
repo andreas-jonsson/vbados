@@ -33,7 +33,10 @@ static SHFLSTRING_WITH_BUF(shflstr, SHFL_MAX_LEN);
 
 static SHFLDIRINFO_WITH_NAME_BUF(shfldirinfo, SHFL_MAX_LEN);
 
-static SHFLCREATEPARMS createparms;
+static union {
+	SHFLVOLINFO volinfo;
+	SHFLCREATEPARMS create;
+} parms;
 
 static uint8_t map_shfl_attr_to_dosattr(const SHFLFSOBJATTR *a)
 {
@@ -366,50 +369,50 @@ static void handle_create_open_ex(union INTPACK __far *r)
 	copy_drive_relative_filename(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
 
-	memset(&createparms, 0, sizeof(SHFLCREATEPARMS));
+	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
 	if (action & OPENEX_REPLACE_IF_EXISTS) {
-		createparms.CreateFlags |= SHFL_CF_ACT_REPLACE_IF_EXISTS;
+		parms.create.CreateFlags |= SHFL_CF_ACT_REPLACE_IF_EXISTS;
 	} else if (action & OPENEX_OPEN_IF_EXISTS) {
-		createparms.CreateFlags |= SHFL_CF_ACT_OPEN_IF_EXISTS;
+		parms.create.CreateFlags |= SHFL_CF_ACT_OPEN_IF_EXISTS;
 	} else {
-		createparms.CreateFlags |= SHFL_CF_ACT_FAIL_IF_EXISTS;
+		parms.create.CreateFlags |= SHFL_CF_ACT_FAIL_IF_EXISTS;
 	}
 	if (action & OPENEX_CREATE_IF_NEW) {
-		createparms.CreateFlags |= SHFL_CF_ACT_CREATE_IF_NEW;
+		parms.create.CreateFlags |= SHFL_CF_ACT_CREATE_IF_NEW;
 	} else {
-		createparms.CreateFlags |= SHFL_CF_ACT_FAIL_IF_NEW;
+		parms.create.CreateFlags |= SHFL_CF_ACT_FAIL_IF_NEW;
 	}
 
 	if ((mode & OPENEX_MODE_RDWR) == OPENEX_MODE_RDWR) {
-		createparms.CreateFlags |= SHFL_CF_ACCESS_READWRITE;
+		parms.create.CreateFlags |= SHFL_CF_ACCESS_READWRITE;
 	} else if (mode & OPENEX_MODE_WRITE) {
-		createparms.CreateFlags |= SHFL_CF_ACCESS_WRITE;
+		parms.create.CreateFlags |= SHFL_CF_ACCESS_WRITE;
 	} else {
-		createparms.CreateFlags |= SHFL_CF_ACCESS_READ;
+		parms.create.CreateFlags |= SHFL_CF_ACCESS_READ;
 	}
 
-	if (!(createparms.CreateFlags & SHFL_CF_ACCESS_WRITE)) {
+	if (!(parms.create.CreateFlags & SHFL_CF_ACCESS_WRITE)) {
 		// Do we really want to create new files without opening them for writing?
-		createparms.CreateFlags |= SHFL_CF_ACT_FAIL_IF_NEW;
+		parms.create.CreateFlags |= SHFL_CF_ACT_FAIL_IF_NEW;
 	}
 
-	dlog_print("vbox createparms flags=");
-	dlog_printx(createparms.CreateFlags);
+	dlog_print("vbox create flags=");
+	dlog_printx(parms.create.CreateFlags);
 	dlog_endline();
 
-	err = vbox_shfl_open(&data.vb, data.hgcm_client_id, root, &shflstr.shflstr, &createparms);
+	err = vbox_shfl_open(&data.vb, data.hgcm_client_id, root, &shflstr.shflstr, &parms.create);
 	if (err) {
 		set_vbox_err(r, err);
 		return;
 	}
 
 	dlog_print("vbox success result=");
-	dlog_printd(createparms.Result);
+	dlog_printd(parms.create.Result);
 	dlog_print(" openfile=");
 	dlog_printu(openfile);
 	dlog_endline();
 
-	switch (createparms.Result) {
+	switch (parms.create.Result) {
 	case SHFL_PATH_NOT_FOUND:
 		set_dos_err(r, DOS_ERROR_PATH_NOT_FOUND);
 		return;
@@ -427,16 +430,16 @@ static void handle_create_open_ex(union INTPACK __far *r)
 		break;
 	}
 
-	if (createparms.Handle == SHFL_HANDLE_NIL) {
+	if (parms.create.Handle == SHFL_HANDLE_NIL) {
 		set_dos_err(r, DOS_ERROR_GEN_FAILURE);
 		return;
 	}
 
 	data.files[openfile].root = root;
-	data.files[openfile].handle = createparms.Handle;
+	data.files[openfile].handle = parms.create.Handle;
 
 	// Fill in the SFT
-	map_shfl_info_to_dossft(sft, &createparms.Info);
+	map_shfl_info_to_dossft(sft, &parms.create.Info);
 	sft->open_mode = mode;
 	sft->dev_info = 0x8040 | drive; // "Network drive, unwritten to"
 	sft->f_pos = 0;
@@ -687,16 +690,16 @@ static void handle_getattr(union INTPACK __far *r)
 	copy_drive_relative_filename(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
 
-	memset(&createparms, 0, sizeof(SHFLCREATEPARMS));
-	createparms.CreateFlags = SHFL_CF_LOOKUP;
+	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
+	parms.create.CreateFlags = SHFL_CF_LOOKUP;
 
 	err = vbox_shfl_open(&data.vb, data.hgcm_client_id, root,
-	                     &shflstr.shflstr, &createparms);
+	                     &shflstr.shflstr, &parms.create);
 	if (err) {
 		set_vbox_err(r, err);
 		return;
 	}
-	switch (createparms.Result) {
+	switch (parms.create.Result) {
 	case SHFL_PATH_NOT_FOUND:
 		set_dos_err(r, DOS_ERROR_PATH_NOT_FOUND);
 		return;
@@ -707,7 +710,7 @@ static void handle_getattr(union INTPACK __far *r)
 		break;
 	}
 
-	map_shfl_info_to_getattr(r, &createparms.Info);
+	map_shfl_info_to_getattr(r, &parms.create.Info);
 	clear_dos_err(r);
 }
 
@@ -721,19 +724,19 @@ static vboxerr open_search_dir(SHFLROOT root, const char __far *path)
 	copy_drive_relative_dirname(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
 
-	memset(&createparms, 0, sizeof(SHFLCREATEPARMS));
-	createparms.CreateFlags = SHFL_CF_DIRECTORY
+	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
+	parms.create.CreateFlags = SHFL_CF_DIRECTORY
 	        | SHFL_CF_ACT_OPEN_IF_EXISTS | SHFL_CF_ACT_FAIL_IF_NEW
 	        | SHFL_CF_ACCESS_READ;
 
 	err = vbox_shfl_open(&data.vb, data.hgcm_client_id, root,
-	                     &shflstr.shflstr, &createparms);
+	                     &shflstr.shflstr, &parms.create);
 	if (err) {
 		dlog_puts("open search dir failed");
 		return err;
 	}
 
-	switch (createparms.Result) {
+	switch (parms.create.Result) {
 	case SHFL_PATH_NOT_FOUND:
 		return VERR_PATH_NOT_FOUND;
 	case SHFL_FILE_NOT_FOUND:
@@ -742,13 +745,13 @@ static vboxerr open_search_dir(SHFLROOT root, const char __far *path)
 		break;
 	}
 
-	if (createparms.Handle == SHFL_HANDLE_NIL) {
+	if (parms.create.Handle == SHFL_HANDLE_NIL) {
 		dlog_puts("open search dir returned no handle...");
 		return VERR_INVALID_HANDLE;
 	}
 
 	data.files[SEARCH_DIR_FILE].root = root;
-	data.files[SEARCH_DIR_FILE].handle = createparms.Handle;
+	data.files[SEARCH_DIR_FILE].handle = parms.create.Handle;
 
 	return 0;
 }
@@ -965,17 +968,17 @@ static void handle_chdir(union INTPACK __far *r)
 	copy_drive_relative_filename(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
 
-	memset(&createparms, 0, sizeof(SHFLCREATEPARMS));
-	createparms.CreateFlags = SHFL_CF_LOOKUP;
+	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
+	parms.create.CreateFlags = SHFL_CF_LOOKUP;
 
 	err = vbox_shfl_open(&data.vb, data.hgcm_client_id, root,
-	                     &shflstr.shflstr, &createparms);
+	                     &shflstr.shflstr, &parms.create);
 	if (err) {
 		set_vbox_err(r, err);
 		return;
 	}
 
-	switch (createparms.Result) {
+	switch (parms.create.Result) {
 	case SHFL_PATH_NOT_FOUND:
 	case SHFL_FILE_NOT_FOUND:
 		set_dos_err(r, DOS_ERROR_PATH_NOT_FOUND);
@@ -985,7 +988,7 @@ static void handle_chdir(union INTPACK __far *r)
 	}
 
 	// Also check whether it is really a directory
-	if (!(map_shfl_attr_to_dosattr(&createparms.Info.Attr) & _A_SUBDIR)) {
+	if (!(map_shfl_attr_to_dosattr(&parms.create.Info.Attr) & _A_SUBDIR)) {
 		set_dos_err(r, DOS_ERROR_PATH_NOT_FOUND);
 		return;
 	}
@@ -1007,18 +1010,18 @@ static void handle_mkdir(union INTPACK __far *r)
 	copy_drive_relative_filename(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
 
-	memset(&createparms, 0, sizeof(SHFLCREATEPARMS));
-	createparms.CreateFlags = SHFL_CF_DIRECTORY
+	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
+	parms.create.CreateFlags = SHFL_CF_DIRECTORY
 	        | SHFL_CF_ACT_FAIL_IF_EXISTS | SHFL_CF_ACT_CREATE_IF_NEW;
 
 	err = vbox_shfl_open(&data.vb, data.hgcm_client_id, root,
-	                     &shflstr.shflstr, &createparms);
+	                     &shflstr.shflstr, &parms.create);
 	if (err) {
 		set_vbox_err(r, err);
 		return;
 	}
 
-	switch (createparms.Result) {
+	switch (parms.create.Result) {
 	case SHFL_PATH_NOT_FOUND:
 	case SHFL_FILE_NOT_FOUND:
 		set_dos_err(r, DOS_ERROR_PATH_NOT_FOUND);
@@ -1053,6 +1056,27 @@ static void handle_rmdir(union INTPACK __far *r)
 		set_vbox_err(r, err);
 		return;
 	}
+
+	clear_dos_err(r);
+}
+
+static void handle_get_disk_free(union INTPACK __far *r)
+{
+	const unsigned long total_space = 10 * 1024 * 1024UL;
+	const unsigned long free_space = 4 * 1024 * 1024UL;
+	const unsigned cluster_bytes = 4 * 4096UL;
+
+	// TODO SHFLVOLINFO
+
+	r->h.ah = 0; // media ID byte
+	r->h.al = 4; /* Sectors per cluster */
+	r->x.cx = 4096; /* Bytes per sector */
+	r->x.bx = total_space / cluster_bytes; /* Total clusters */
+	r->x.dx = free_space / cluster_bytes;  /* Number of available clusters */
+
+	dlog_print("disk free");
+	dlog_printd(r->x.dx);
+	dlog_endline();
 
 	clear_dos_err(r);
 }
@@ -1128,7 +1152,10 @@ static bool int2f_11_handler(union INTPACK r)
 		handle_rmdir(&r);
 		return true;
 	case DOS_FN_GET_DISK_FREE:
-		// We don't support this
+		handle_get_disk_free(&r);
+		return true;
+	case DOS_FN_SEEK_END:
+		// I have no testcase for this function, so unsupported
 		set_dos_err(&r, DOS_ERROR_INVALID_FUNCTION);
 		return true;
 	}

@@ -58,6 +58,10 @@
 
 #if USE_VIRTUALBOX
 #include "vbox.h"
+
+/** Size of the VBox buffer. The maximum message length that may be sent.
+ *  Enough to fit a set_pointer_shape message with a 16x16 cursor.  */
+#define VBOX_BUFFER_SIZE (1024 + 32 + 24 + 20)
 #endif
 
 struct point {
@@ -188,11 +192,12 @@ typedef struct tsrdata {
 	/** Have VirtualBox absolute coordinates. */
 	bool vbhaveabs : 1;
 	struct vboxcomm vb;
+	char vbbuf[VBOX_BUFFER_SIZE];
 #endif
 
 #if USE_VMWARE
 	/** VMware is available. */
-	bool vmwavail : 1;
+	bool vmwavail;
 #endif
 } TSRDATA;
 

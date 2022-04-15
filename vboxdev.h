@@ -1408,6 +1408,57 @@ typedef struct _SHFLDIRINFO
 	SHFLSTRING      name;
 } SHFLDIRINFO, *PSHFLDIRINFO;
 
+/**
+ * Shared folder filesystem properties.
+ */
+typedef struct SHFLFSPROPERTIES
+{
+	/** The maximum size of a filesystem object name.
+	 * This does not include the '\\0'. */
+	uint32_t cbMaxComponent;
+
+	/** True if the filesystem is remote.
+	 * False if the filesystem is local. */
+	bool    fRemote;
+
+	/** True if the filesystem is case sensitive.
+	 * False if the filesystem is case insensitive. */
+	bool    fCaseSensitive;
+
+	/** True if the filesystem is mounted read only.
+	 * False if the filesystem is mounted read write. */
+	bool    fReadOnly;
+
+	/** True if the filesystem can encode unicode object names.
+	 * False if it can't. */
+	bool    fSupportsUnicode;
+
+	/** True if the filesystem is compresses.
+	 * False if it isn't or we don't know. */
+	bool    fCompressed;
+
+	/** True if the filesystem compresses of individual files.
+	 * False if it doesn't or we don't know. */
+	bool    fFileCompression;
+
+	/** @todo more? */
+} SHFLFSPROPERTIES;
+AssertCompileSize(SHFLFSPROPERTIES, 12);
+/** Pointer to a shared folder filesystem properties structure. */
+typedef SHFLFSPROPERTIES *PSHFLFSPROPERTIES;
+/** Pointer to a const shared folder filesystem properties structure. */
+typedef SHFLFSPROPERTIES const *PCSHFLFSPROPERTIES;
+
+typedef struct _SHFLVOLINFO
+{
+	uint64_t       ullTotalAllocationBytes;
+	uint64_t       ullAvailableAllocationBytes;
+	uint32_t       ulBytesPerAllocationUnit;
+	uint32_t       ulBytesPerSector;
+	uint32_t       ulSerial;
+	SHFLFSPROPERTIES fsProperties;
+} SHFLVOLINFO, *PSHFLVOLINFO;
+
 #define SHFL_LIST_NONE          0
 #define SHFL_LIST_RETURN_ONE    1
 #define SHFL_LIST_RESTART       2

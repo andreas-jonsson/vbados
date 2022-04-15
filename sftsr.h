@@ -33,8 +33,12 @@
 /** Maximum number of open files */
 #define NUM_FILES     40
 
-/** Directory enumeration needs an open file, this is its index. */
+/** Directory enumeration needs an open file, this is its index in the "openfile" table. */
 #define SEARCH_DIR_FILE 0
+
+/** Size of the VBox buffer. The maximum message length that may be sent.
+ *  Enough to fit an HGCM connect call, which is actually larger than most other calls we use ( <= 7 args ).  */
+#define VBOX_BUFFER_SIZE (200)
 
 typedef struct {
 	uint32_t root;
@@ -65,6 +69,7 @@ typedef struct {
 
 	// VirtualBox communication
 	struct vboxcomm vb;
+	char vbbuf[VBOX_BUFFER_SIZE];
 	uint32_t hgcm_client_id;
 } TSRDATA;
 

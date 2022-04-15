@@ -77,17 +77,18 @@ int vbox_init_device(LPVBOXCOMM vb)
 	return 0;
 }
 
-int vbox_init_buffer(LPVBOXCOMM vb)
+int vbox_init_buffer(LPVBOXCOMM vb, unsigned size)
 {
+	vb->dds.regionSize = size;
+	vb->dds.segOrSelector = FP_SEG(&vb->buf);
+	vb->dds.offset = FP_OFF(&vb->buf);
+	vb->dds.bufferId = 0;
+	vb->dds.physicalAddress = 0;
+	vb->vds = false;
+
 	if (vds_available()) {
 		// Use the Virtual DMA Service to get the physical address of this buffer
 		int err;
-
-		vb->dds.regionSize = sizeof(vb->buf);
-		vb->dds.segOrSelector = FP_SEG(&vb->buf);
-		vb->dds.offset = FP_OFF(&vb->buf);
-		vb->dds.bufferId = 0;
-		vb->dds.physicalAddress = 0;
 
 		err = vds_lock_dma_buffer_region(&vb->dds, VDS_NO_AUTO_ALLOC);
 		if (err) {
@@ -98,12 +99,11 @@ int vbox_init_buffer(LPVBOXCOMM vb)
 			dlog_endline();
 			return err;
 		}
-	} else {
-		vb->dds.regionSize = 0; // So that we don't try to unlock it later
-		vb->dds.segOrSelector = FP_SEG(&vb->buf);
-		vb->dds.offset = FP_OFF(&vb->buf);
-		vb->dds.bufferId = 0;
 
+		vb->vds = true;
+	} else {
+		// If VDS is not available,
+		// we assume a 1:1 mapping between linear and physical addresses
 		vb->dds.physicalAddress = linear_addr(&vb->buf);
 	}
 
@@ -112,8 +112,7 @@ int vbox_init_buffer(LPVBOXCOMM vb)
 
 int vbox_release_buffer(LPVBOXCOMM vb)
 {
-	if (vds_available() && vb->dds.regionSize) {
-
+	if (vb->vds && vds_available()) {
 		int err = vds_unlock_dma_buffer_region(&vb->dds, 0);
 		if (err) {
 			dlog_print("Error while VDS unlocking, err=");
@@ -122,6 +121,7 @@ int vbox_release_buffer(LPVBOXCOMM vb)
 			// Ignore the error, it's not like we can do anything
 		}
 	}
+	vb->vds = false;
 	vb->dds.regionSize = 0;
 	vb->dds.segOrSelector = 0;
 	vb->dds.offset = 0;
