@@ -60,8 +60,8 @@ the following additional features:
   [![Adlib composer mouse cursor partially outside VM area](https://depot.javispedro.com/vbox/vbados/vbm_adlibcomposer_overlap.png)](https://depot.javispedro.com/vbox/vbados/vbm_adlibcomposer.webm)  
   This is because the cursor is actually rendered by the host rather than the guest OS,
   thus feeling much more responsive.  
-  [See it on MS-DOS Edit / QBasic](https://depot.javispedro.com/vbox/vbados/vbm_edit.webm).  
-  [See it on Adlib Composer](https://depot.javispedro.com/vbox/vbados/bm_adlibcomposer.webm).  
+  [▶️ MS-DOS Edit / QBasic](https://depot.javispedro.com/vbox/vbados/vbm_edit.webm).  
+  [▶️ Adlib Composer](https://depot.javispedro.com/vbox/vbados/bm_adlibcomposer.webm).  
 
 * Note that many MS-DOS programs do not rely on the mouse driver to render the
   cursor, or even just read the "relative" mouse motion from the mouse itself and
@@ -80,13 +80,13 @@ the following additional features:
   Like with the above bullet point, if you find non-compatible software,
   you can either use VMware's [game mode](https://kb.vmware.com/s/article/1033416),
   or run `vbmouse integ off` to disable the integration.  
-  [See MS-DOS Edit / QBasic under VMware](https://depot.javispedro.com/vbox/vbados/vbm_vmware_edit.webm).  
+  [▶️ MS-DOS Edit / QBasic under VMware](https://depot.javispedro.com/vbox/vbados/vbm_vmware_edit.webm).  
   
 * **Windows 3.x enhanced mode support**:
   This driver has the hooks required for DOS boxes inside Windows.  
   Multiple DOS boxes can use this driver simultaneously without conflict,
   and clicks in the DOS window will be passed through to the correct running DOS application.  
-  [See Adlib Composer inside a Windows 3.11 enhanced mode DOS box](https://depot.javispedro.com/vbox/vbados/vbm_win_adlibcomposer.webm).
+  [▶️ Adlib Composer inside a Windows 3.11 enhanced mode DOS box](https://depot.javispedro.com/vbox/vbados/vbm_win_adlibcomposer.webm).
 
 * **Scroll wheel and 3 button mouse support**, using the API from CuteMouse.  
   This works in VirtualBox/VMware as well as real PS/2 hardware (if the BIOS is compatible).
@@ -95,8 +95,8 @@ the following additional features:
 
 * **Sending scroll keys on wheel movements**,
   i.e. faking wheel scroll support on programs that don't support the CuteMouse API
-  by using arrow up/down keys.
-  You can now scroll with the mouse wheel inside MS-DOS Edit!  
+  by using arrow up/down keys.  
+  [▶️ Mouse wheel scrolling inside MS-DOS Edit under VirtualBox](https://depot.javispedro.com/vbox/vbados/vbm_vmware_edit.webm).  
   This is not enabled by default, see `wheelkey` below.
 
 * The current version uses about 10KiB of memory (when logging is disabled),
@@ -109,7 +109,8 @@ the following additional features:
   (like mouse integration in VirtualBox/VMware).  
   There is some preliminary mouse wheel support based on the ideas from
   [vmwmouse](https://github.com/NattyNarwhal/vmwmouse/issues/5),
-  but it only works under real-mode Windows. 
+  but it only works under real-mode Windows.  
+  [▶️ Mouse wheel scrolling under real-mode Windows 3.0](https://depot.javispedro.com/vbox/vbados/vbm_wheel_win30.webm).  
   As of right now wheel support is still broken under 386-enhanced mode Windows.
 
 ### Usage
@@ -128,7 +129,7 @@ Run `vbmouse <action>` for specific configuration. Here are the supported action
 * `wheel on|off` to enable/disable the wheel support.
 
 * `wheelkey key|off` to set up sending fake key presses on wheel movement. 
-  Only supported `key` right now are `updn` (for the up and down arros) and `pageupdn`.
+  Only supported `key` right now are `updn` (for the up and down arrows) and `pageupdn`.
 
 * `integ on|off` to enable/disable the VirtualBox/VMware cursor integration. 
    Useful for programs that expect relative mouse coordinates.
