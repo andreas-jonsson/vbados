@@ -302,7 +302,7 @@ that is to build the multiple file several times with different settings. To avo
 that and the resulting makefile complications, I just put all auxiliary functions
 directly in the header files.
 
-* [mousmain.c](../tree/mousemain.c) is the transient part of the mouse driver,
+* [mousmain.c](../tree/mousmain.c) is the transient part of the mouse driver,
   while [mousetsr.c](../tree/mousetsr.c) is the resident part.  
   For example here is the [entry point for int33](https://git.javispedro.com/cgit/vbados.git/tree/mousetsr.c?id=8aea756f5094de4b357c125b75973d82328e0c31#n1055).
   A single function, `handle_mouse_event`, takes the mouse events from
@@ -378,6 +378,8 @@ directly in the header files.
   
 * [unixtime.h](../tree/unixtime.h) a (probably wrong) function to convert 
   UNIX into DOS times, since we can't use the C runtime from the TSR.
+  
+* [mousew16.c](../tree/mousew16.c) contains the Windows 3.x driver source.
 
 ### int33 extensions
 
