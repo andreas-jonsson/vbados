@@ -1,5 +1,5 @@
 /*
- * VBMouse - Shared folders entry point
+ * VBSF - Shared folders entry point
  * Copyright (C) 2022 Javier S. Pedro
  *
  * This program is free software; you can redistribute it and/or
