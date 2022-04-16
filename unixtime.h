@@ -51,6 +51,10 @@ static void timestampns_to_dos_time(uint16_t __far *dos_time, uint16_t __far *do
 	int per_year, per_month;
 	bool is_leap;
 
+	// Since we can only run on >= 386 anyway, let's do the initial
+	// 64-bit division and the rest of 32-bit divisions/modulos
+	// in asm using 386 32-bit instructions.
+
 	__asm {
 		push eax                     /* Preserve 32-bit regs */
 		push ecx

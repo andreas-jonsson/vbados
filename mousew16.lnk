@@ -1,7 +1,7 @@
 system windows_dll
 option map=mousew16.map
 option modname=MOUSE   # This is necessary; USER.EXE imports mouse functions using this module name
-option description 'VirtualBox Mouse driver'
+option description 'VBMouse int33 absolute mouse driver'
 
 segment CALLBACKS fixed shared      # We need a non-moveable segment to store our callback routines
 

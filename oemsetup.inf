@@ -5,4 +5,4 @@
     1 =., "VBMouse driver disk", disk1
 
 [pointing.device]
-    vbmouse = 1:vbmouse.drv, "VirtualBox PS/2 Mouse", x:*vmd, vbmouse
+    vbmouse = 1:vbmouse.drv, "VBMouse int33 absolute mouse driver", x:*vmd, vbmouse
