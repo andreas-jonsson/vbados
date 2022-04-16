@@ -18,7 +18,9 @@ The VB stands for "Very Basic" :)
 
 # Downloads
 
-TBD
+You can get a recent build from the following floppy disk image:
+
+[VBADOS.FLP](https://depot.javispedro.com/vbox/vbados/vbados.flp)
 
 # Documentation
 
@@ -81,7 +83,7 @@ the following additional features:
   [See Adlib Composer inside a Windows 3.11 enhanced mode DOS box](https://depot.javispedro.com/vbox/vbados/vbm_win_adlibcomposer.webm).
 
 * **Scroll wheel and 3 button mouse support**, using the API from CuteMouse.  
-  This is currently limited to the VirtualBox/VMware integration, albeit limited PS/2 wheel support is planned.
+  This works in VirtualBox/VMware as well as real PS/2 hardware (if the BIOS is compatible).
   Note *wheel support is broken when running under 386-enhanced mode Windows*, 
   since it will not let PS/2 wheel data reach the DOS driver.
 
