@@ -85,8 +85,10 @@ the following additional features:
   Note *wheel support is broken when running under 386-enhanced mode Windows*, 
   since it will not let PS/2 wheel data reach the DOS driver.
 
-* Sending fake keys on wheel movements, i.e. faking wheel scroll support using arrow up/down keys.
-  You can scroll with the mouse wheel inside MS-DOS Edit!  
+* **Sending scroll keys on wheel movements**,
+  i.e. faking wheel scroll support on programs that don't support the CuteMouse API
+  by using arrow up/down keys.
+  You can now scroll with the mouse wheel inside MS-DOS Edit!  
   This is not enabled by default, see `wheelkey` below.
 
 * The current version uses about 10KiB of memory (when logging is disabled),
@@ -96,7 +98,7 @@ the following additional features:
 * A companion driver for Windows 3.x (_VBMOUSE.DRV_) that uses this driver 
   (via int33h) instead of accessing the mouse directly,
   so that Windows 3.x gains some of the features of this driver
-  (like mouse integration in VirtualBox).  
+  (like mouse integration in VirtualBox/VMware).  
   There is some preliminary mouse wheel support based on the ideas from
   [vmwmouse](https://github.com/NattyNarwhal/vmwmouse/issues/5),
   but it only works under real-mode Windows. 
@@ -432,6 +434,15 @@ to obtain mouse button presses (and wheel movement) is still through the PS/2 co
 
 * Get the scroll wheel to work under 386-enhanced Windows, but this requires
   looking into VKD.386 (or a replacement of it).
+
+* Investigate whether it makes sense to configure the PS/2 BIOS in "1 packet mode"
+  like the [Microsoft Mouse driver does](https://www.betaarchive.com/wiki/index.php/Microsoft_KB_Archive/97883)
+  to aid scroll wheel compatibility. Currently we set it to either 3 packet
+  or 4 packet depending on whether we detect a wheel mouse or not.
+
+* The VirtualBox BIOS can crash on warm-boot (e.g. Ctrl+Alt+Del) if the mouse
+  was in the middle of sending a packet. A VM reboot fixes it.
+  We probably need to hook Ctrl+Alt+Del and turn off the mouse.
 
 * VMware shared folders support is interesting, but there is very little 
   documentation that I can find, no sample code, and no open source implementation.  

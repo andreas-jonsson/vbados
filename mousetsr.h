@@ -37,7 +37,7 @@
 /** Enable the wheel. */
 #define USE_WHEEL 1
 /** Trace events verbosily */
-#define TRACE_EVENTS 1
+#define TRACE_EVENTS 0
 
 #define VERSION_MAJOR 0
 #define VERSION_MINOR 5
@@ -102,7 +102,10 @@ typedef struct tsrdata {
 	// Detected mouse hardware
 #if USE_WHEEL
 	/** Whether the current mouse has a wheel (and support is enabled). */
-	bool haswheel;
+	bool haswheel : 1;
+	/** Whether the current PS/2 BIOS seems to be putting the first packet
+	 *  on the high byte of the first word when we use wheel mouse. */
+	bool bios_x_on_status : 1;
 #endif
 
 	// Current mouse settings

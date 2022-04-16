@@ -679,7 +679,7 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 				for (; z < 0; z++) {
 					int16_store_keystroke(data.wheel_up_key);
 				}
-			} else if (z > 0 && data.wheel_up_key) {
+			} else if (z > 0 && data.wheel_down_key) {
 				for (; z > 0; z--) {
 					int16_store_keystroke(data.wheel_down_key);
 				}
@@ -751,6 +751,8 @@ static void ps2_mouse_handler(uint16_t word1, uint16_t word2, uint16_t word3, ui
 #endif /* TRACE_EVENTS */
 
 	// Decode the PS2 event args
+
+#if USE_WHEEL
 	// In a normal IBM PS/2 BIOS (incl. VirtualBox/Bochs/qemu/SeaBIOS):
 	//  word1 low byte = status (following PS2M_STATUS_*)
 	//  word2 low byte = x
@@ -763,18 +765,40 @@ static void ps2_mouse_handler(uint16_t word1, uint16_t word2, uint16_t word3, ui
 	//  word2 low byte = y
 	//  word3 low byte = z
 	//  word4 = always zero
-	// VirtualBox/Bochs/qemu/SeaBIOS behave like a normal one,
-	// but they also store the raw contents of all mouse packets in the EBDA (starting 0x28 = packet 0).
+	// Real hardware seems to be of either type.
+	// VirtualBox/Bochs/qemu/SeaBIOS also store the raw contents of all mouse
+	// packets in the EBDA reserved area (starting 0x28 = packet 0).
 	// Other BIOSes don't do that so it is not a reliable option either.
 	// So, how to detect which BIOS we have?
-	// For now we are always assuming "normal" PS/2 BIOS.
-	// But with VirtualBox integration on we'll get the wheel packet from the EBDA,
-	// and with VMWare integration on we'll get it from the VMware protocol.
+
+	// First, we'll only read the EBDA if we have confirmed VirtualBox (see USE_VIRTUALBOX below)
+	//  For VirtualBox VMs this is mandatory since we have no other way of getting wheel data
+	//  For qemu VMs, we can still get to wheel data via the vmmouse interface (and we'll do that).
+	// Second, the moment we see that the high byte of word1 is not 0,
+	// we'll assume the BIOS is of the second type, and remember that.
+	// (since when there is no movement, x would be 0 anyway!)
+
+	if (word1 & 0xFF00) data.bios_x_on_status = true;
+
+	if (data.haswheel && data.bios_x_on_status) {
+		status = (uint8_t) word1;
+		x = (uint8_t) (word1 >> 8);
+		y = (uint8_t) word2;
+		z = (int8_t) word3; // Sign-extend z packet
+	} else {
+		status = (uint8_t) word1;
+		x = (uint8_t) word2;
+		y = (uint8_t) word3;
+		z = 0;
+	}
+#else
 	status = (uint8_t) word1;
 	x = (uint8_t) word2;
 	y = (uint8_t) word3;
 	z = 0;
-	(void) word4;
+#endif
+
+	(void) word4; // This appears to be never used on either type of BIOS
 
 	// Sign-extend X, Y as per the status byte
 	x =   status & PS2M_STATUS_X_NEG ? 0xFF00 | x : x;
@@ -946,6 +970,7 @@ static void reset_mouse_hardware()
 	ps2m_enable(false);
 
 #if USE_WHEEL
+	data.bios_x_on_status = false;
 	if (data.usewheel && ps2m_detect_wheel()) {
 		dlog_puts("PS/2 wheel detected");
 		data.haswheel = true;
