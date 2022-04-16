@@ -1,6 +1,6 @@
-vbmouse.drv
+vbados.flp
 vbmouse.exe
-vbmouse.flp
+vbmouse.drv
 vbsf.exe
 *.o
 *.obj

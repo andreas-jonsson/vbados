@@ -1,9 +1,11 @@
 # This is an Open Watcom wmake makefile, not GNU make.
 # Assuming you have sourced `owsetenv` beforehand.
 
+# Object files for vbmouse
 mousedosobjs = mousetsr.obj mousmain.obj vbox.obj
 mousew16objs = mousew16.obj
 
+# Object files for vbsf
 sfdosobjs = sftsr.obj sfmain.obj vbox.obj
 
 doscflags = -bt=dos -ms -6 -osi -w3 -wcd=202
@@ -58,12 +60,12 @@ sftsr.obj: sftsr.c .AUTODEPEND
 	*wcc -fo=$^@ $(doscflags) $(dostsrcflags) $[@
 
 clean: .SYMBOLIC
-	rm -f vbmouse.exe vbmouse.drv vbsf.exe vbmouse.flp *.obj *.map
+	rm -f vbmouse.exe vbmouse.drv vbsf.exe vbados.flp *.obj *.map
 
-vbmouse.flp:
-	mformat -C -f 1440 -v VBMOUSE -i $^@ ::
+vbados.flp:
+	mformat -C -f 1440 -v VBADOS -i $^@ ::
 
 # Build a floppy image containing the driver
-flp: vbmouse.flp vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe .SYMBOLIC
-	mcopy -i vbmouse.flp -o vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe ::
+flp: vbados.flp vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe .SYMBOLIC
+	mcopy -i vbados.flp -o vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe ::
 
