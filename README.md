@@ -1,11 +1,16 @@
 
 VBADOS is a set of Terminate-and-Stay-Resident (TSR) utilities to be used
-inside MS-DOS virtual machines.
+inside MS-DOS virtual machines (and Windows 3.x), and help to provide
+closer integration between the guest and the host.
 
 There are two utilities right now:
 
 * VBMOUSE.EXE is a DOS mouse driver for VirtualBox/VMware emulated mouse,
-  but also real PS/2 mice.
+  but also real PS/2 mice. It allows for seamless host/guest mouse integration,
+  and scroll wheel support.
+
+* VBSF.EXE is a Shared Folders driver for VirtualBox (not VMware yet). It allows
+  to map directories from the host OS into drive letters in the MS-DOS guest.
 
 Note: this project has absolutely no official relation with
 either [VirtualBox](https://www.virtualbox.org/) or Visual Basic.
@@ -19,27 +24,36 @@ TBD
 
 [TOC]
 
-## VBMOUSE - DOS mouse driver
+## VBMOUSE.EXE - DOS mouse driver
 
 VBMOUSE.EXE is a DOS mouse driver as a TSR written in C and compilable using OpenWatcom C.
 It is primarily designed to work with the VirtualBox emulated mouse, but also supports 
-real PS/2 mice as well as the VMware virtual one.
+real PS/2 mice as well as the VMware virtual mouse.
 Being in C, it is not going to stand out in either compatibility, performance,
 or memory usage; but hoping it is at least a bit easier to hack on, for experimentation.
+
+I tried to keep it working on real hardware as an exercise.
+It requires at a very minimum a 386, but probably needs
+something a bit beefier to be useful, since the rendering routines are going
+to be much slower than an assembly-optimized driver.
+Note also that it does not support serial mice or anything other than PS/2.
+For older PCs, serial mice, or, to be honest, for real hardware overall, 
+[CuteMouse](http://cutemouse.sourceforge.net/) is still the best choice and
+hard to beat.
 
 Like any other DOS mouse driver, it partially supports the MS Mouse API (int 33h), and has
 the following additional features:
 
-* *Integration with VirtualBox*: in many DOS programs, the mouse can be used 
+* **Integration with VirtualBox**: in many DOS programs, the mouse can be used 
   without requiring capture, and will seamlessly integrate with the mouse cursor
   position in the host.  
   You can notice that in (compatible) graphical applications the DOS cursor will appear to be
   drawn outside the VM area when near a border:  
-  [![Adlib composer mouse cursor partially outside VM area](https://depot.javispedro.com/vbox/vbmouse/vbm_adlibcomposer_overlap.png)](https://depot.javispedro.com/vbox/vbmouse/vbm_adlibcomposer.webm)  
+  [![Adlib composer mouse cursor partially outside VM area](https://depot.javispedro.com/vbox/vbados/vbm_adlibcomposer_overlap.png)](https://depot.javispedro.com/vbox/vbados/vbm_adlibcomposer.webm)  
   This is because the cursor is actually rendered by the host rather than the guest OS,
   thus feeling much more responsive.  
-  [See it on MS-DOS Edit / QBasic](https://depot.javispedro.com/vbox/vbmouse/vbm_edit.webm).  
-  [See it on Adlib Composer](https://depot.javispedro.com/vbox/vbmouse/vbm_adlibcomposer.webm).  
+  [See it on MS-DOS Edit / QBasic](https://depot.javispedro.com/vbox/vbados/vbm_edit.webm).  
+  [See it on Adlib Composer](https://depot.javispedro.com/vbox/vbados/bm_adlibcomposer.webm).  
 
 * Note that many MS-DOS programs do not rely on the mouse driver to render the
   cursor, or even just read the "relative" mouse motion from the mouse itself and
@@ -47,9 +61,9 @@ the following additional features:
   In these cases, the mouse will be "jumpy" or even stuck when the VirtualBox integration
   is enabled, so this integration can be disabled (either from the VirtualBox
   menu or by using `vbmouse integ off` after loading the driver).  
-  ![Mouse Integration option under VirtualBox](https://depot.javispedro.com/vbox/vbmouse/vbox_integ_option.png)  
+  ![Mouse Integration option under VirtualBox](https://depot.javispedro.com/vbox/vbados/vbox_integ_option.png)  
 
-* *Integration with VMware/qemu/vmmouse*: the same binary is compatible with
+* **Integration with VMware/qemu/vmmouse**: the same binary is compatible with
   both virtualizers.  
   However, the host cursor rendering is not implemented; the cursor will always
   be rendered by the guest 
@@ -58,32 +72,35 @@ the following additional features:
   Like with the above bullet point, if you find non-compatible software,
   you can either use VMware's [game mode](https://kb.vmware.com/s/article/1033416),
   or run `vbmouse integ off` to disable the integration.  
-  [See MS-DOS Edit / QBasic under VMware](https://depot.javispedro.com/vbox/vbmouse/vbm_vmware_edit.webm).  
+  [See MS-DOS Edit / QBasic under VMware](https://depot.javispedro.com/vbox/vbados/vbm_vmware_edit.webm).  
   
-* *Windows 3.x enhanced mode support*:
-  This driver has the hooks required for DOS boxes inside Windows. 
+* **Windows 3.x enhanced mode support**:
+  This driver has the hooks required for DOS boxes inside Windows.  
   Multiple DOS boxes can use this driver simultaneously without conflict,
-  and clicks in the DOS window will be passed through to the correct running DOS application.
-  See: [Adlib Composer inside a Windows 3.11 enhanced mode DOS box](https://depot.javispedro.com/vbox/vbmouse/vbm_win_adlibcomposer.webm).
+  and clicks in the DOS window will be passed through to the correct running DOS application.  
+  [See Adlib Composer inside a Windows 3.11 enhanced mode DOS box](https://depot.javispedro.com/vbox/vbados/vbm_win_adlibcomposer.webm).
 
-* *Wheel and 3 button mouse support*, using the API from CuteMouse.  
+* **Scroll wheel and 3 button mouse support**, using the API from CuteMouse.  
   This is currently limited to the VirtualBox/VMware integration, albeit limited PS/2 wheel support is planned.
+  Note *wheel support is broken when running under 386-enhanced mode Windows*, 
+  since it will not let PS/2 wheel data reach the DOS driver.
 
 * Sending fake keys on wheel movements, i.e. faking wheel scroll support using arrow up/down keys.
-  You can scroll with the mouse wheel inside MS-DOS Edit!
+  You can scroll with the mouse wheel inside MS-DOS Edit!  
+  This is not enabled by default, see `wheelkey` below.
 
 * The current version uses about 10KiB of memory (when logging is disabled),
   and will autoload itself into HMA if available.  
-  ![VBMouse Memory Usage](https://depot.javispedro.com/vbox/vbmouse/vbmouse_mem.png).  
+  ![VBMouse Memory Usage](https://depot.javispedro.com/vbox/vbados/vbmouse_mem.png).  
 
 * A companion driver for Windows 3.x (_VBMOUSE.DRV_) that uses this driver 
   (via int33h) instead of accessing the mouse directly,
   so that Windows 3.x gains some of the features of this driver
   (like mouse integration in VirtualBox).  
-  This driver has some preeliminary mouse wheel support based on the ideas from
-  [vmwmouse](https://github.com/NattyNarwhal/vmwmouse/issues/5).  
-
-Note that it does not support serial mice or anything other than PS/2.
+  There is some preliminary mouse wheel support based on the ideas from
+  [vmwmouse](https://github.com/NattyNarwhal/vmwmouse/issues/5),
+  but it only works under real-mode Windows. 
+  As of right now wheel support is still broken under 386-enhanced mode Windows.
 
 ### Usage
 
@@ -114,7 +131,7 @@ Run `vbmouse <action>` for specific configuration. Here are the supported action
 
 ### Windows 3.x driver
 
-A very simple Windows 3.x mouse driver (called VBMOUSE.DRV) is also included,
+A very simple Windows 3.x mouse driver (called _VBMOUSE.DRV_) is also included,
 which _requires VBMOUSE.EXE to be loaded before starting Windows_ ,
 and uses its functionality to provide similar host/guest mouse integration
 inside Windows 3.x itself (i.e. not just DOS boxes).
@@ -129,7 +146,7 @@ Go to Options → Change system configuration
 → Search in "A:" (or the path with VBADOS files)
 → "VBMouse int33 absolute mouse driver".
 
-![Windows 3.x setup](https://depot.javispedro.com/vbox/vbmouse/win_setup.png)
+![Windows 3.x setup](https://depot.javispedro.com/vbox/vbados/win_setup.png)
 
 If the "Mouse" option becomes empty after doing this, just select 
 "VBMouse int33 absolute mouse driver" which will now appear in the same list
@@ -141,17 +158,103 @@ VBMOUSE.EXE as DOS mouse driver, you may be interested in
 E.g, for either [VirtualBox](https://git.javispedro.com/cgit/vbmouse.git/)
 or [VMware](https://github.com/NattyNarwhal/vmwmouse).
 
-## VBSF - Shared folders
+You can also use VBMOUSE.DRV with any other int33 mouse driver, however
+to use absolute positioning (e.g. under DOSBox-X or DOSemu), the int33
+driver needs to support my [absolute int33 API extension bit](https://git.javispedro.com/cgit/vbados.git/about/#absolute-mouse-api).
+Otherwise the driver will only pass relative coordinates (i.e. without
+SF_ABSOLUTE bit).
 
-TBD
+## VBSF.EXE - Shared folders
+
+VBSF.EXE allows you to mount VirtualBox shared folders as drive letters.
+It is an "MS-DOS network redirector", so the new letters behave as network drives,
+not real drives.
+
+Most redirector functionality is supported, including write support, except
+changing file attributes (like setting a file to read-only...). The drives
+can also be accessed from within Windows 3.x .
+
+It uses around 10KiB of memory, and auto-installs to an UMB if available.
+
+### Usage
+
+First, you need to configure some shared folders in the Virtual Machine settings
+from VirtualBox (right click on the shared folders icon, or just open VM Settings).
+
+![VirtualBox shared folders configuring an automount folder at V:](https://depot.javispedro.com/vbox/vbados/vbox_sf_config.png)
+
+In the add share dialog (seen above):
+
+* Folder Path is the actual host directory you want to mount in the guest.
+
+* Folder Name is just a given name for this shared folder, can be anything you want.  
+  When using VBSF, this will become the drive label, so ensure it fits in 8+3
+  characters.
+  
+* Mount point is the drive letter VBSF is going to use for this folder.
+
+* Use "Automount" if you want VBSF to automatically mount this folder
+  once the driver is loaded; otherwise, you will need to use `vbsf mount`.
+
+Second, remember to add [LASTDRIVE=Z to your CONFIG.SYS](https://en.wikipedia.org/wiki/CONFIG.SYS#LASTDRIVE)! 
+
+Third, to install the driver, just run `vbsf`. 
+The driver will automatically mount all the directories marked as "Automount".
+
+![VBSF mounting V:](https://depot.javispedro.com/vbox/vbados/vbsf_src_c.png)
+
+The driver supports the following actions, too:
+
+* `install` installs the driver (i.e. the same as if you run `vbsf`).
+  `vbsf install low` can be used to force installation in conventional memory;
+  by default, it tries to use a DOS UMB block.
+
+* `uninstall` uninstalls the driver.
+
+* `list` shows currently mounted drives as well as all available shared folders.
+
+* `mount FOLDER X:` can be used to mount a non-automatic shared folder at a specific drive,
+  or to mount a specific shared folder on multiple drives.
+
+* `unmount X:` unmounts a specific drive.
+
+* `rescan` unmounts all shared folders, gets the new list of shared folders
+  from VirtualBox and performs automounts again. You _must_ run this command
+  if you change the shared folder definitions while the driver is running,
+  otherwise you are likely to get mysterious failures.
+
+
+### File names and timezones
+
+Note that there is NO Long File Name support. This means that all the files
+in the shared directory must be 8.3 characters long or shorter. Files with
+long files will just not appear in the directory listings and therefore
+cause misterious failures (they will be skipped when copying directories,
+and DOS will not be able to delete directories containing such files).
+
+Also, there is absolutely NO support for mapping filenames to a specific codepage.
+Please limit yourself to plain ASCII filenames or you will quickly see gibberish in DOS.
+No spaces, accents or tildes!
+
+To see proper modification dates & times in directory listings in DOS,
+you need to set the TZ (timezone) environment variable _before_ loading VBSF.EXE. 
+Please see the [OpenWatcom documentation for the syntax of the TZ variable](https://open-watcom.github.io/open-watcom-v2-wikidocs/clib.html#The_TZ_Environment_Variable).
+
+For example, if your local timezone is 8 hours earlier than UTC (e.g. PST), run
+`set TZ=PST8`.
 
 # Building
 
 This requires [OpenWatcom 2.0](http://open-watcom.github.io/) to build,
-albeit it may work with an older version, and was only tested on a Linux host.
+and I have only tried with the latest (March 2022) snapshot, 
+albeit it likely work with older versions. Might even work with 1.9. 
+I have tested building it on a Linux host as well as building on MS-DOS itself
+(with the source code being on a VBSF shared folder :) ).
 
-The included makefile is a wmake makefile. To build it just enter the OpenWatcom environment and run `wmake flp`.
-This will create a floppy image containing vbmouse.exe plus the Windows 3.x driver (oemsetup.inf and vbmouse.drv).
+The included makefile is a `wmake` makefile. 
+To build it just enter the OpenWatcom environment and run `wmake flp`.
+This will create a floppy image containing vbmouse.exe,
+vbsf.exe plus the Windows 3.x driver (oemsetup.inf and vbmouse.drv).
 
 # Design
 
@@ -160,6 +263,22 @@ command line arguments, load the resident part, and configure it; but otherwise 
 The resident part is entirely in one segment (`RESGROUP`), including all the data
 it will need. All other segments will be dropped once the driver is installed
 (including the C runtime!). 
+
+VBMOUSE is the only "native" free DOS mouse driver written in C I'm aware of.
+There is already a very good free DOS mouse driver written in assembler,
+[CuteMouse](http://cutemouse.sourceforge.net/). There are also DOS mouse drivers
+written in C inside [DOSBox](https://www.dosbox.com/) and [DOSEMU](http://www.dosemu.org/),
+but these drivers are native code running inside the emulator itself; they are
+not designed to be run inside the emulated machine. 
+
+VBSF is a "MS-DOS network redirector" of which there are not many free
+implementations at all. The only one I'm aware of the _Phantom_ sample code, from the
+[Undocumented DOS](https://openlibrary.org/books/OL1419113M/Undocumented_DOS) book,
+and [EtherDFS](http://etherdfs.sourceforge.net/), which is also in Watcom C.
+EtherDFS leaves most of the actual logic to the server code (running on the host), 
+so the DOS part is much more efficient.
+
+### Source code organization
 
 You will notice that most auxiliary functions are in .h files.
 This is due to laziness on my part.
@@ -170,8 +289,6 @@ is to build the multiple file several times with different settings. To avoid
 that and the resulting makefile complications, I just put all auxiliary functions
 directly in the header files.
 
-### Source code organization
-
 * [mousmain.c](../tree/mousemain.c) is the transient part of the mouse driver,
   while [mousetsr.c](../tree/mousetsr.c) is the resident part.
   For example here is the [entry point for int33](https://git.javispedro.com/cgit/vbados.git/tree/mousetsr.c?id=8aea756f5094de4b357c125b75973d82328e0c31#n1055).
@@ -180,11 +297,15 @@ directly in the header files.
   it to the user program as appropiate.  
   Most of the complexity is the standard "DOS mouse driver" tasks,
   like drawing the cursor in all the standard CGA/EGA/VGA modes (ouf!).  
+  For reference you can also see [CuteMouse](http://cutemouse.sourceforge.net/).
   
 * [sfmain.c](../tree/sfmain.c) and [sftsr.c](../tree/sftsr.c) are the
   transient/resident part (respectively) of the shared folders TSR.
-  This is basically a MS-DOS "network redirector" whose interface is totally
-  undocumented save for [a few books](http://link.archive.org/portal/Undocumented-DOS--a-programmers-guide-to/JS0Fn59H2zU/).
+  This includes the entry point for int 2Fh/ah=11h, a.k.a. the "network redirector" interface.
+  While the interface is undocumented, it is similar to a VFS layer,
+  implementing the usual file system calls (open, close, readdir, mkdir, etc.).
+  It uses lots of MS-DOS internals,
+  see [Undocumented DOS](https://openlibrary.org/books/OL1419113M/Undocumented_DOS) for reference.
 
 * [dlog.h](../tree/dlog.h), a poor man's printf-replacement used by the resident
   parts of both drivers. Only for debugging, not used in release builds.
@@ -225,7 +346,7 @@ directly in the header files.
   
 * [int21dos.h](../tree/int21dos.h) wrappers for some TSR-necessary DOS services,
   but also contains structs and definitions for many DOS internal data structures.
-  These mostly come from the [Undocumented DOS](http://link.archive.org/portal/Undocumented-DOS--a-programmers-guide-to/JS0Fn59H2zU/) book.
+  These mostly come from the [Undocumented DOS](https://openlibrary.org/books/OL1419113M/Undocumented_DOS) book.
   Sadly, it is really necessary to mingle with DOS data structures
   when writing a network redirector; there is no clearly defined public API.
   
@@ -258,7 +379,7 @@ the wheel API until the next driver reset.
 
 There is a very simple extension of the int33 protocol to let clients know whether
 the incoming coordinates come from an absolute device (like the VirtualBox integration)
-or from a relative device (like a real PS/2 mouse or when the integration is disabled).
+or from a relative device (like a real PS/2 mouse or when the integration is disabled):
 
 > When the int33 user interrupt routine is called, bit 8 of CX indicates that the
 > x, y coordinates passed in CX, DX come from an absolute pointing device
@@ -267,9 +388,16 @@ or from a relative device (like a real PS/2 mouse or when the integration is dis
 Note that the range of coordinates is still defined as in a traditional int33 driver,
 i.e. the size of the screen unless a larger range is defined via int33 ax=7/8.
 
+The rationale for this extension is that for many types of simulated mouse it
+is possible to switch between absolute and relative position. E.g. on
+VirtualBox you can disable the integration, on VMware you can enable "game mode",
+on DOSBox you can lock/unlock the mouse, etc. 
+This information is not forwarded to the users of the int33 interface;
+this extension fixes that.
+
 The included Win3.x driver uses this API to decide whether to forward the absolute
 OR relative coordinates to Windows, so that one can use the same driver for both types
-without loss of functionality.
+of mouse input without loss of functionality in either case.
 
 ### VirtualBox communication
 
@@ -295,3 +423,13 @@ mouse motion information via the PS/2 mouse. However, the PS/2 controller will s
 whenever mouse motion happens, and it will still report mouse button presses. In fact, the only way
 to obtain mouse button presses (and wheel movement) is still through the PS/2 controller.
 
+### Future work
+
+* Get the scroll wheel to work under 386-enhanced Windows, but this requires
+  looking into VKD.386 (or a replacement of it).
+
+* VMware shared folders support is interesting, but there is very little 
+  documentation that I can find, no sample code, and no open source implementation.  
+  Also, unlike VBMOUSE, where most of the code  is common to all virtualizers,
+  it will probably make more sense to make a separate "VMwareSF" TSR since most of
+  the VBSF code would be not be useful.

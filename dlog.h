@@ -73,8 +73,6 @@ static inline void dlog_putc(char c)
 	outp(DLOG_TARGET_PORT, c);
 }
 
-
-
 #endif /* DLOG_TARGET_SERIAL */
 
 static void dlog_endline(void)

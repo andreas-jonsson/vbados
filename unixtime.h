@@ -69,7 +69,7 @@ static void timestampns_to_dos_time(uint16_t __far *dos_time, uint16_t __far *do
 		/* eax now contains seconds_since_epoch / 2 */
 		xor edx, edx                 /* Discard the remainder (less than 2 seconds) */
 
-		add eax, [tzoffset]          /* Add tzoffset now (which is in seconds / 2 units) */
+		sub eax, [tzoffset]          /* Subtract tzoffset now (which is in seconds / 2 units) */
 
 		mov ecx, (24 * 60 * 60) / 2  /* seconds in one day / 2 */
 

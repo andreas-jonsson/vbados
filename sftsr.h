@@ -62,7 +62,8 @@ typedef struct {
 	DOSSDA __far *dossda;
 
 	// TSR configuration
-	/** Offset (in seconds/2) of the current timezone */
+	/** Offset (in seconds/2) of the current timezone.
+	 *  As per tradition, a negative offset means east of GMT; while positive means west. */
 	int32_t tz_offset;
 
 	// Current status
