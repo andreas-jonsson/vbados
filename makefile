@@ -69,3 +69,6 @@ vbados.flp:
 flp: vbados.flp vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe .SYMBOLIC
 	mcopy -i vbados.flp -o vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe ::
 
+# Build a zip with the driver binaries
+zip: vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe .SYMBOLIC
+	zip --DOS-names -fz- vbados.zip  vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe

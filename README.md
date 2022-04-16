@@ -18,9 +18,15 @@ The VB stands for "Very Basic" :)
 
 # Downloads
 
-You can get a recent build from the following floppy disk image:
+You can get a recent build from the ready-to-go floppy disk image:
 
 [VBADOS.FLP](https://depot.javispedro.com/vbox/vbados/vbados.flp)
+
+Alternatively, here is a .zip containing all binaries:
+
+[VBADOS.ZIP](https://depot.javispedro.com/vbox/vbados/vbados.zip)
+
+For the source code, you can check out this git repository.
 
 # Documentation
 
