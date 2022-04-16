@@ -37,7 +37,7 @@
 /** Enable the wheel. */
 #define USE_WHEEL 1
 /** Trace events verbosily */
-#define TRACE_EVENTS 0
+#define TRACE_EVENTS 1
 
 #define VERSION_MAJOR 0
 #define VERSION_MINOR 5

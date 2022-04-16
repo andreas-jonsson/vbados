@@ -96,9 +96,6 @@ static __segment reallocate_to_umb(segment_t cur_seg, unsigned segment_size)
 		// Create a new program instance including PSP at the new_segment
 		copy_program(new_segment_psp, old_segment_psp, segment_size);
 
-		// Tell DOS to "switch" to the new program
-		dos_set_psp(new_segment_psp);
-
 		// Return the new segment
 		return new_segment;
 	} else {
@@ -109,6 +106,30 @@ static __segment reallocate_to_umb(segment_t cur_seg, unsigned segment_size)
 
 		return 0;
 	}
+}
+
+/** Called in case there is an error and we should free our HMA segment. */
+static void cancel_reallocation(segment_t new_seg)
+{
+	segment_t new_segment_psp = new_seg - (DOS_PSP_SIZE/16);
+	dos_free(new_segment_psp);
+}
+
+/** Called right before doing the TSR call.
+ *  Frees the old code segment. */
+static void finish_reallocation(segment_t old_segment_psp, segment_t new_seg)
+{
+	segment_t new_segment_psp = new_seg - (DOS_PSP_SIZE/16);
+
+	// Tell DOS that we are "switching" to the new program in the HMA
+	dos_set_psp(new_segment_psp);
+
+	// We are about to free() the old code segment,
+	// which is likely where the currently running function code resides.
+	dos_free(old_segment_psp);
+
+	// Nothing should try to allocate memory between this and the actual TSR call,
+	// since it could overwrite the currently running code... !
 }
 
 #endif // DOSTSR_H

@@ -308,10 +308,7 @@ static __declspec(aborts) int install_driver(LPTSRDATA data, bool high)
 	// If we reallocated ourselves to UMB,
 	// it's time to free our initial conventional memory allocation
 	if (high) {
-		// We are about to free() our own code segment.
-		// Nothing should try to allocate memory between this and the TSR call
-		// below, since it could overwrite our code...
-		dos_free(_psp);
+		finish_reallocation(_psp, FP_SEG(data));
 	}
 
 	_dos_keep(EXIT_SUCCESS, get_paragraphs(resident_size));
@@ -479,7 +476,10 @@ int main(int argc, const char *argv[])
 			deallocate_environment(_psp);
 		}
 		err = configure_driver(data);
-		if (err) return EXIT_FAILURE;
+		if (err) {
+			if (high) cancel_reallocation(FP_SEG(data));
+			return EXIT_FAILURE;
+		}
 		return install_driver(data, high);
 	} else if (stricmp(argv[argi], "uninstall") == 0) {
 		if (!data) return driver_not_found();

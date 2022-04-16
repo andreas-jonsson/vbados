@@ -175,6 +175,7 @@ changing file attributes (like setting a file to read-only...). The drives
 can also be accessed from within Windows 3.x .
 
 It uses around 10KiB of memory, and auto-installs to an UMB if available.
+This is still much less memory than a SMB client and network stack!
 
 ### Usage
 
@@ -243,11 +244,12 @@ Please see the [OpenWatcom documentation for the syntax of the TZ variable](http
 For example, if your local timezone is 8 hours earlier than UTC (e.g. PST), run
 `set TZ=PST8`.
 
-# Building
+# Building the source
 
 This requires [OpenWatcom 2.0](http://open-watcom.github.io/) to build,
 and I have only tried with the latest (March 2022) snapshot, 
-albeit it likely work with older versions. Might even work with 1.9. 
+albeit it may likely work with older versions, starting from 1.9.
+
 I have tested building it on a Linux host as well as building on MS-DOS itself
 (with the source code being on a VBSF shared folder :) ).
 
@@ -261,7 +263,7 @@ vbsf.exe plus the Windows 3.x driver (oemsetup.inf and vbmouse.drv).
 The two TSRs have a resident part (which stays in memory) and a transient part (which is only used to handle
 command line arguments, load the resident part, and configure it; but otherwise doesn't stay in memory). 
 The resident part is entirely in one segment (`RESGROUP`), including all the data
-it will need. All other segments will be dropped once the driver is installed
+it will need. All other segments will be unloaded once the driver is installed
 (including the C runtime!). 
 
 VBMOUSE is the only "native" free DOS mouse driver written in C I'm aware of.
@@ -284,13 +286,13 @@ You will notice that most auxiliary functions are in .h files.
 This is due to laziness on my part.
 While most of the time these auxiliary functions are only used by one
 tool and one segment (i.e. the resident part uses it but not the transient part),
-sometimes I need the same function different segments/binaries. The only way to do
-is to build the multiple file several times with different settings. To avoid
+sometimes I need the same function in different segments/binaries. The only way to do
+that is to build the multiple file several times with different settings. To avoid
 that and the resulting makefile complications, I just put all auxiliary functions
 directly in the header files.
 
 * [mousmain.c](../tree/mousemain.c) is the transient part of the mouse driver,
-  while [mousetsr.c](../tree/mousetsr.c) is the resident part.
+  while [mousetsr.c](../tree/mousetsr.c) is the resident part.  
   For example here is the [entry point for int33](https://git.javispedro.com/cgit/vbados.git/tree/mousetsr.c?id=8aea756f5094de4b357c125b75973d82328e0c31#n1055).
   A single function, `handle_mouse_event`, takes the mouse events from
   all the different sources (PS/2, VirtualBox, Windows386, etc.), and posts
@@ -301,7 +303,7 @@ directly in the header files.
   
 * [sfmain.c](../tree/sfmain.c) and [sftsr.c](../tree/sftsr.c) are the
   transient/resident part (respectively) of the shared folders TSR.
-  This includes the entry point for int 2Fh/ah=11h, a.k.a. the "network redirector" interface.
+  This includes the entry point for int 2Fh/ah=11h, a.k.a. the "network redirector" interface.  
   While the interface is undocumented, it is similar to a VFS layer,
   implementing the usual file system calls (open, close, readdir, mkdir, etc.).
   It uses lots of MS-DOS internals,
@@ -315,11 +317,13 @@ directly in the header files.
 * [vbox.h](../tree/vbox.h), [vbox.c](../tree/vbox.c) implement initialization
   of the [VirtualBox guest-host interface](#virtualbox-communication), 
   including PCI BIOS access and Virtual DMA.
-  [vboxdev.h](../tree/vboxdev.h) contains all the defines/struct from upstream
+
+* [vboxdev.h](../tree/vboxdev.h) contains all the defines/struct from upstream
   VirtualBox that are used in this driver (this file is a poor mix and mash
   of VirtualBox additions header files and thus is the only file of this repo
   under the MIT license).
-  [vboxhgcm.h](../tree/vboxhgcm.h), [vboxshfl.h](../tree/vboxshfl.h) contains
+
+* [vboxhgcm.h](../tree/vboxhgcm.h), [vboxshfl.h](../tree/vboxshfl.h) contains
   auxiliary functions for the HGCM (Host-Guest Communication) protocol and 
   the shared folders protocol (both are only used by VBSF). 
 
@@ -358,7 +362,8 @@ directly in the header files.
 * [int33.h](../tree/int33.h) wrappers and defines for the int33 mouse API.
 
 * [int4Bvds.h](../tree/int4Bvds.h) wrappers for the
-  [Virtual DMA services](https://en.wikipedia.org/wiki/Virtual_DMA_Services).
+  [Virtual DMA services](https://en.wikipedia.org/wiki/Virtual_DMA_Services),
+  used for VirtualBox communication under protected mode.
   
 * [unixtime.h](../tree/unixtime.h) a (probably wrong) function to convert 
   UNIX into DOS times, since we can't use the C runtime from the TSR.
