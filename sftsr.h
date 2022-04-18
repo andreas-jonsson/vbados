@@ -29,6 +29,8 @@
 #define VERSION_MAJOR 0
 #define VERSION_MINOR 2
 
+#define TRACE_CALLS   0
+
 #define LASTDRIVE     'Z'
 #define MAX_NUM_DRIVE (LASTDRIVE - 'A')
 #define NUM_DRIVES    (MAX_NUM_DRIVE + 1)

@@ -1148,9 +1148,11 @@ static bool int2f_11_handler(union INTPACK r)
 		return true;
 	}
 
+#if TRACE_CALLS
 	dlog_print("2f al=");
 	dlog_printx(r.h.al);
 	dlog_endline();
+#endif
 
 	// Handle special functions that target all redirectors first
 	switch (r.h.al) {
