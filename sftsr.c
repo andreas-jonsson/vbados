@@ -69,6 +69,16 @@ static void map_shfl_info_to_getattr(union INTPACK __far *r, SHFLFSOBJINFO *i)
 	timestampns_to_dos_time(&r->x.cx, &r->x.dx, i->ModificationTime, data.tz_offset);
 }
 
+static bool is_valid_dos_file(SHFLFSOBJINFO *i)
+{
+	if (i->cbObject > UINT32_MAX) {
+		// DOS uses 32-bit offsets for files, don't risk showing it large files
+		return false;
+	}
+
+	return true;
+}
+
 static int get_op_drive_num(union INTPACK __far *r)
 {
 	DOSSFT __far *sft;
@@ -852,6 +862,23 @@ static vboxerr find_next_from_vbox(uint8_t search_attr)
 		dlog_printu(shfldirinfo.dirinfo.cucShortName);
 		dlog_endline();
 
+		if (!is_valid_dos_file(&shfldirinfo.dirinfo.Info)) {
+			dlog_puts("hiding file with invalid info");
+			continue;
+		}
+
+		// Read file metadata (except for the name)
+		map_shfl_info_to_dosdir(found_file, &shfldirinfo.dirinfo.Info);
+
+		// See if this file has the right attributes,
+		// we are searching for files that have no attribute bits set other
+		// than the ones in search_attr .
+		if (found_file->attr & ~search_attr) {
+			dlog_puts("hiding file with unwanted attrs");
+			continue; // Skip this one
+		}
+
+		// Now convert the filename
 		// TODO Use the short filename if available from a windows host
 		// i.e. shfldirinfo.dirinfo.cucShortName
 
@@ -861,12 +888,8 @@ static vboxerr find_next_from_vbox(uint8_t search_attr)
 			dlog_puts("hiding file with long filename");
 			continue;
 		}
-		map_shfl_info_to_dosdir(found_file, &shfldirinfo.dirinfo.Info);
 
-		if (found_file->attr & ~search_attr) {
-			continue; // Skip this one
-		}
-
+		// This file is OK to return, break out of the loop
 		break;
 	};
 
