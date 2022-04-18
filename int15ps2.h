@@ -215,8 +215,20 @@ static bool ps2m_detect_wheel(void)
 
 	// Get the initial mouse device id
 	err = ps2m_get_device_id(&device_id);
-	if (err || device_id != PS2M_DEVICE_ID_PLAIN) {
-		// TODO : Likely have to accept more device_ids here.
+	if (err) {
+		return false;
+	}
+
+	if (device_id == PS2M_DEVICE_ID_IMPS2) {
+		// Already wheel
+		return true;
+	}
+
+	if (device_id != PS2M_DEVICE_ID_PLAIN) {
+		// TODO: Likely we have to accept more device IDs here
+		dlog_print("Unknown initial mouse device_id=");
+		dlog_printx(device_id);
+		dlog_endline();
 		return false;
 	}
 
