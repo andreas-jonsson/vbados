@@ -26,9 +26,6 @@
 #include "vbox.h"
 #include "int21dos.h"
 
-#define VERSION_MAJOR 0
-#define VERSION_MINOR 2
-
 #define TRACE_CALLS   0
 
 #define LASTDRIVE     'Z'

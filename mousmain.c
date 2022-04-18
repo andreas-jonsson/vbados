@@ -21,8 +21,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dos.h>
-#include <i86.h>
 
+#include "version.h"
 #include "dlog.h"
 #include "int33.h"
 #include "int21dos.h"
@@ -246,7 +246,7 @@ static int configure_driver(LPTSRDATA data)
 	dlog_init();
 
 	// Check for PS/2 mouse BIOS availability
-	if ((err = ps2m_init(PS2M_PACKET_SIZE_PLAIN))) {
+	if ((err = ps2m_init(1))) {
 		fprintf(stderr, "Cannot init PS/2 mouse BIOS, err=%d\n", err);
 		// Can't do anything without PS/2
 		return err;

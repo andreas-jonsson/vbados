@@ -23,6 +23,7 @@
 #include <time.h>
 #include <dos.h>
 
+#include "version.h"
 #include "dlog.h"
 #include "vboxshfl.h"
 #include "dostsr.h"

@@ -63,6 +63,7 @@ enum ps2m_device_ids {
 	PS2M_DEVICE_ID_IMEX_HORZ = 5
 };
 
+/** Valid PS/2 mouse resolutions in DPI. */
 enum ps2m_resolution {
 	PS2M_RESOLUTION_25  = 0,
 	PS2M_RESOLUTION_50  = 1,
@@ -70,6 +71,7 @@ enum ps2m_resolution {
 	PS2M_RESOLUTION_200 = 3
 };
 
+/** Valid PS/2 mouse sampling rates in Hz. */
 enum ps2m_sample_rate {
 	PS2M_SAMPLE_RATE_10  = 0,
 	PS2M_SAMPLE_RATE_20  = 1,
@@ -197,6 +199,7 @@ static ps2m_err ps2m_enable(bool enable);
 	__value [ah] \
 	__modify [ax]
 
+/** Sends the magic sequence to switch the mouse to the IMPS2 protocol. */
 static void ps2m_send_imps2_sequence(void)
 {
 	ps2m_set_sample_rate(PS2M_SAMPLE_RATE_200);
@@ -204,21 +207,15 @@ static void ps2m_send_imps2_sequence(void)
 	ps2m_set_sample_rate(PS2M_SAMPLE_RATE_80);
 }
 
+/** Detects whether we have a IMPS2 mouse with wheel support. */
 static bool ps2m_detect_wheel(void)
 {
 	int err;
 	uint8_t device_id;
 
-	// Switch to the 4-byte packet and reset the mouse.
-	// We are not supposed to receive messages at this time anyway.
-	err = ps2m_init(PS2M_PACKET_SIZE_EXT);
-	if (err) {
-		return false;
-	}
-
 	// Get the initial mouse device id
 	err = ps2m_get_device_id(&device_id);
-	if (err || device_id != 0) {
+	if (err || device_id != PS2M_DEVICE_ID_PLAIN) {
 		// TODO : Likely have to accept more device_ids here.
 		return false;
 	}

@@ -246,7 +246,7 @@ static uint16_t int33_get_driver_version(void);
 	__value [bx] \
 	__modify [ax bx cx dx]
 
-static int int33_get_max_coordinates(int16_t *x, int16_t *y);
+static int int33_get_max_coordinates(uint16_t *x, uint16_t *y);
 #pragma aux int33_get_max_coordinates = \
 	"mov ax, 0x26" \
 	"mov bx, -1" \

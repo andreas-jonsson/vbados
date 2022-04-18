@@ -39,9 +39,6 @@
 /** Trace events verbosily */
 #define TRACE_EVENTS 0
 
-#define VERSION_MAJOR 0
-#define VERSION_MINOR 5
-
 /** The report MS MOUSE compatible version to programs who ask for it. */
 #define REPORTED_VERSION_MAJOR 6
 #define REPORTED_VERSION_MINOR 0x30
@@ -50,8 +47,16 @@
 
 #define USE_INTEGRATION (USE_VIRTUALBOX || USE_VMWARE)
 
+/** Max size of PS/2 packet that we support. */
+#define MAX_PS2_PACKET_SIZE 4
+
+/** Maximum number of 55ms ticks that may pass between two bytes of the same PS/2 packet */
+#define MAX_PS2_PACKET_DELAY 2
+
+/** Number of buttons reported back to user programs. */
 #define NUM_BUTTONS 3
 
+/** Size of int33 graphic cursor shape definitions. */
 #define GRAPHIC_CURSOR_WIDTH 16
 #define GRAPHIC_CURSOR_HEIGHT 16
 #define GRAPHIC_CURSOR_SCANLINE_LEN 2
@@ -77,6 +82,7 @@ typedef struct tsrdata {
 #if USE_WIN386
 	void (__interrupt __far *prev_int2f_handler)();
 #endif
+	// Settings configured via the command line
 #if USE_WHEEL
 	/** Whether to enable & use wheel mouse. */
 	bool usewheel;
@@ -99,14 +105,19 @@ typedef struct tsrdata {
 	 *  This stores the desired grid granularity. */
 	struct point screen_granularity;
 
-	// Detected mouse hardware
+	// Detected mouse hardware & status
 #if USE_WHEEL
 	/** Whether the current mouse has a wheel (and support is enabled). */
-	bool haswheel : 1;
-	/** Whether the current PS/2 BIOS seems to be putting the first packet
-	 *  on the high byte of the first word when we use wheel mouse. */
-	bool bios_x_on_status : 1;
+	bool haswheel;
 #endif
+	/** Packet size that we are currently using. */
+	uint8_t packet_size;
+	/** Number of bytes received so far (< packet_size). */
+	uint8_t cur_packet_bytes;
+	/** Stores the bytes received so far (cur_bytes). */
+	uint8_t ps2_packet[MAX_PS2_PACKET_SIZE];
+	/** Number of ticks at the point when we started to receive this packet. */
+	uint16_t cur_packet_ticks;
 
 	// Current mouse settings
 	/** Mouse sensitivity/speed. */
@@ -149,7 +160,7 @@ typedef struct tsrdata {
 	/** Total mickeys moved in the last second. */
 	uint16_t total_motion;
 	/** Ticks when the above value was last reset. */
-	uint16_t last_ticks;
+	uint16_t last_motion_ticks;
 	/** Current status of buttons (as bitfield). */
 	uint16_t buttons;
 	struct {

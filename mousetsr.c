@@ -644,9 +644,9 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 		events |= INT33_EVENT_MASK_MOVEMENT;
 
 		// Check if around one second has passed
-		if ((ticks - data.last_ticks) >= 18) {
+		if ((ticks - data.last_motion_ticks) >= 18) {
 			data.total_motion = 0;
-			data.last_ticks = ticks;
+			data.last_motion_ticks = ticks;
 		}
 
 		// If more than the double speed threshold has been moved in the last second,
@@ -729,80 +729,39 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 	}
 }
 
-/** PS/2 BIOS calls this routine to notify mouse events. */
-static void ps2_mouse_handler(uint16_t word1, uint16_t word2, uint16_t word3, uint16_t word4)
+static void handle_ps2_packet(void)
 {
-#pragma aux ps2_mouse_handler "*" parm caller [ax] [bx] [cx] [dx] modify [ax bx cx dx si di es fs gs]
-
 	unsigned status;
-	int x, y, z;
+	int x, y, z = 0;
 	bool abs = false;
 
-#if TRACE_EVENTS
-	dlog_print("ps2 callback ");
-	dlog_printx(word1);
-	dlog_putc(' ');
-	dlog_printx(word2);
-	dlog_putc(' ');
-	dlog_printx(word3);
-	dlog_putc(' ');
-	dlog_printx(word4);
-	dlog_endline();
-#endif /* TRACE_EVENTS */
-
-	// Decode the PS2 event args
+	// Decode the PS2 packet...
+	status = data.ps2_packet[0];
+	x      = data.ps2_packet[1];
+	y      = data.ps2_packet[2];
 
 #if USE_WHEEL
-	// In a normal IBM PS/2 BIOS (incl. VirtualBox/Bochs/qemu/SeaBIOS):
-	//  word1 low byte = status (following PS2M_STATUS_*)
-	//  word2 low byte = x
-	//  word3 low byte = y
-	//  word4 = always zero
-	// In a PS/2 BIOS with wheel support (incl. VMware/DOSBox-X):
-	// taken from CuteMouse/KoKo:
-	//  word1 high byte = x
-	//  word1 low byte = status
-	//  word2 low byte = y
-	//  word3 low byte = z
-	//  word4 = always zero
-	// Real hardware seems to be of either type.
-	// VirtualBox/Bochs/qemu/SeaBIOS also store the raw contents of all mouse
-	// packets in the EBDA reserved area (starting 0x28 = packet 0).
-	// Other BIOSes don't do that so it is not a reliable option either.
-	// So, how to detect which BIOS we have?
-
-	// First, we'll only read the EBDA if we have confirmed VirtualBox (see USE_VIRTUALBOX below)
-	//  For VirtualBox VMs this is mandatory since we have no other way of getting wheel data
-	//  For qemu VMs, we can still get to wheel data via the vmmouse interface (and we'll do that).
-	// Second, the moment we see that the high byte of word1 is not 0,
-	// we'll assume the BIOS is of the second type, and remember that.
-	// (since when there is no movement, x would be 0 anyway!)
-
-	if (word1 & 0xFF00) data.bios_x_on_status = true;
-
-	if (data.haswheel && data.bios_x_on_status) {
-		status = (uint8_t) word1;
-		x = (uint8_t) (word1 >> 8);
-		y = (uint8_t) word2;
-		z = (int8_t) word3; // Sign-extend z packet
-	} else {
-		status = (uint8_t) word1;
-		x = (uint8_t) word2;
-		y = (uint8_t) word3;
-		z = 0;
+	if (data.haswheel) {
+		// Sign-extend Z
+		z  = (int8_t) data.ps2_packet[3];
 	}
-#else
-	status = (uint8_t) word1;
-	x = (uint8_t) word2;
-	y = (uint8_t) word3;
-	z = 0;
 #endif
-
-	(void) word4; // This appears to be never used on either type of BIOS
 
 	// Sign-extend X, Y as per the status byte
 	x =   status & PS2M_STATUS_X_NEG ? 0xFF00 | x : x;
 	y = -(status & PS2M_STATUS_Y_NEG ? 0xFF00 | y : y);
+
+#if TRACE_EVENTS
+	dlog_print("ps2 packet ");
+	dlog_printx(status);
+	dlog_putc(' ');
+	dlog_printd(x);
+	dlog_putc(' ');
+	dlog_printd(y);
+	dlog_putc(' ');
+	dlog_printd(z);
+	dlog_endline();
+#endif /* TRACE_EVENTS */
 
 #if USE_VIRTUALBOX
 	if (data.vbavail) {
@@ -821,15 +780,6 @@ static void ps2_mouse_handler(uint16_t word1, uint16_t word2, uint16_t word3, ui
 			data.vbhaveabs = false;
 			// Rely on PS/2 relative coordinates.
 		}
-
-#if USE_WHEEL
-		// VirtualBox/Bochs BIOS does not pass wheel data to the callback,
-		// so we will fetch it directly from the BIOS data segment.
-		if (data.haswheel) {
-			int8_t __far * mouse_packet = MK_FP(bda_get_ebda_segment(), 0x28);
-			z = mouse_packet[3];
-		}
-#endif
 	}
 #endif /* USE_VIRTUALBOX */
 
@@ -894,6 +844,47 @@ static void ps2_mouse_handler(uint16_t word1, uint16_t word2, uint16_t word3, ui
 	                   abs, x, y, z);
 }
 
+/** PS/2 BIOS calls this routine to notify mouse events.
+ *  In our case, each time we receive a byte from the mouse. */
+static void ps2_mouse_handler(unsigned byte)
+{
+#pragma aux ps2_mouse_handler "*" parm caller [ax] modify [ax bx cx dx si di es fs gs]
+
+	uint16_t ticks = bda_get_tick_count_lo();
+
+#if TRACE_EVENTS
+	dlog_print("ps2 callback byte ");
+	dlog_printd(1 + data.cur_packet_bytes);
+	dlog_putc('/');
+	dlog_printd(data.packet_size);
+	dlog_putc('=');
+	dlog_printx(byte & 0xFF);
+	dlog_endline();
+#endif /* TRACE_EVENTS */
+
+	if (data.cur_packet_bytes &&
+	        ticks >= data.cur_packet_ticks + MAX_PS2_PACKET_DELAY) {
+		// Assume the start of a new packet
+		dlog_print("dropping packet! prev ticks=");
+		dlog_printu(data.cur_packet_ticks);
+		dlog_print(" new_ticks=");
+		dlog_printu(ticks);
+		dlog_endline();
+		data.cur_packet_bytes = 0;
+	}
+	if (data.cur_packet_bytes == 0) {
+		data.cur_packet_ticks = ticks;
+	}
+
+	data.ps2_packet[data.cur_packet_bytes] = byte;
+	data.cur_packet_bytes++;
+
+	if (data.cur_packet_bytes == data.packet_size) {
+		handle_ps2_packet();
+		data.cur_packet_bytes = 0;
+	}
+}
+
 void __declspec(naked) __far ps2_mouse_callback()
 {
 	__asm {
@@ -906,15 +897,16 @@ void __declspec(naked) __far ps2_mouse_callback()
 		; 8 + 4 saved registers, 24 bytes
 		; plus 4 bytes for retf address
 		; = 28 bytes of stack before callback args
+		; The BIOS always pushes 4 words, so first BIOS parameter is at bp + 28 + 6
 
 		mov bp, sp
 		push cs
 		pop ds
 
-		mov	ax,[bp+28+6]	; Status
-		mov	bx,[bp+28+4]	; X
-		mov	cx,[bp+28+2]	; Y
-		mov	dx,[bp+28+0]	; Z
+		mov ax,[bp+28+6]	; Status
+		; mov bx,[bp+28+4]	; X
+		; mov cx,[bp+28+2]	; Y
+		; mov dx,[bp+28+0]	; Z
 
 		call ps2_mouse_handler
 
@@ -967,26 +959,30 @@ static void set_absolute(bool enable)
 
 static void reset_mouse_hardware()
 {
+	// Stop receiving bytes...
 	ps2m_enable(false);
 
+	// Let the BIOS know we want every packet separately
+	// This also resets the mouse
+	ps2m_init(1);
+
+	data.packet_size = PS2M_PACKET_SIZE_PLAIN;
+	data.cur_packet_bytes = 0;
+	data.cur_packet_ticks = 0;
+
 #if USE_WHEEL
-	data.bios_x_on_status = false;
 	if (data.usewheel && ps2m_detect_wheel()) {
 		dlog_puts("PS/2 wheel detected");
 		data.haswheel = true;
-		// Detect wheel also reinitializes the mouse to the proper packet size
+		data.packet_size = PS2M_PACKET_SIZE_EXT;
 	} else {
 		dlog_puts("PS/2 wheel NOT detected");
 		data.haswheel = false;
-		// Otherwise do an extra reset to return back to initial state, just in case
-		ps2m_init(PS2M_PACKET_SIZE_PLAIN);
 	}
-#else
-	ps2m_init(PS2M_PACKET_SIZE_PLAIN);
 #endif
 
-	ps2m_set_resolution(3);     // 3 = 200 dpi, 8 counts per millimeter
-	ps2m_set_sample_rate(4);    // 4 = 80 reports per second
+	ps2m_set_resolution(PS2M_RESOLUTION_200);
+	ps2m_set_sample_rate(PS2M_SAMPLE_RATE_80);
 	ps2m_set_scaling_factor(1); // 1 = 1:1 scaling
 
 	ps2m_set_callback(get_cs():>ps2_mouse_callback);
