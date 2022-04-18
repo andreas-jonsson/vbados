@@ -219,6 +219,20 @@ static void int33_set_event_handler(uint16_t event_mask, void (__far *handler)()
 	__parm [cx] [es dx] \
 	__modify [ax]
 
+static void int33_set_mouse_speed(int16_t x, int16_t y);
+#pragma aux int33_set_mouse_speed = \
+	"mov ax, 0xF" \
+	"int 0x33" \
+	__parm [cx] [dx] \
+	__modify [ax]
+
+static void int33_set_sensitivity(uint16_t sens_x, uint16_t sens_y, uint16_t double_speed_threshold);
+#pragma aux int33_set_sensitivity = \
+	"mov ax, 0x1A" \
+	"int 0x33" \
+	__parm [bx] [cx] [dx] \
+	__modify [ax]
+
 static uint16_t int33_get_driver_version(void);
 #pragma aux int33_get_driver_version = \
 	"mov bx, 0" \
@@ -232,20 +246,18 @@ static uint16_t int33_get_driver_version(void);
 	__value [bx] \
 	__modify [ax bx cx dx]
 
-static bool int33_get_max_coordinates(int16_t *x, int16_t *y);
+static int int33_get_max_coordinates(int16_t *x, int16_t *y);
 #pragma aux int33_get_max_coordinates = \
 	"mov ax, 0x26" \
 	"mov bx, -1" \
+	"xor cx, cx" \
+	"xor dx, dx" \
 	"int 0x33" \
-	"xor ax, ax" \
-	"test bx, bx" \
-	"jnz error" \
 	"mov [si], cx" \
 	"mov [di], dx" \
-	"mov al, 1" \
 	"error:" \
 	__parm [si] [di] \
-	__value [al] \
+	__value [bx] \
 	__modify [ax bx cx dx]
 
 static uint16_t int33_get_capabilities(void);

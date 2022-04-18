@@ -47,6 +47,8 @@ static struct {
 } flags;
 /** Previous deltaX, deltaY from the int33 mouse callback (for relative motion) */
 static short prev_delta_x, prev_delta_y;
+/** Maximum X and Y coordinates expected from the int33 driver. */
+static unsigned short max_x, max_y;
 #if USE_WHEEL
 /** Some delay-loaded functions from USER.EXE to provide wheel mouse events. */
 static struct {
@@ -191,9 +193,14 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
 	if (events & INT33_EVENT_MASK_ABSOLUTE) {
 		status |= SF_ABSOLUTE;
 
-		// We set the window to be 0..0x7FFF, so just scale to 0xFFFF
-		x = (uint16_t)(x) * 2;
-		y = (uint16_t)(y) * 2;
+		// Clip the coordinates, we don't want any overflow error below...
+		if (x < 0) x = 0;
+		if (y < 0) y = 0;
+		if (x > max_x) x = max_x;
+		if (y > max_y) y = max_y;
+
+		x = scaleu(x, max_x, 0xFFFF);
+		y = scaleu(y, max_y, 0xFFFF);
 	} else {
 		// Prefer to use mickeys for relative motion if we don't have absolute data
 		x = delta_x - prev_delta_x;
@@ -207,7 +214,7 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
 	(void) buttons;
 
 #if TRACE_EVENTS
-	dlog_print("w16mouse: event status=");
+	dlog_print("w16mouse: post status=");
 	dlog_printx(status);
 	dlog_print(" x=");
 	if (status & SF_ABSOLUTE) dlog_printu(x);
@@ -286,12 +293,24 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 		}
 #endif
 
-		// Since the mouse driver will likely not know the Windows resolution,
-		// let's manually set up a large window of coordinates so as to have
-		// as much precision as possible.
-		// We use 0x7FFF instead of 0xFFFF because this parameter is officially a signed value.
-		int33_set_horizontal_window(0, 0x7FFF);
-		int33_set_vertical_window(0, 0x7FFF);
+		// Set the speed to 1,1 to enlarge dosemu coordinate range by 8x16 times.
+		// In other absolute drivers, this doesn't change coordinates nor actual speed (which is inherited from host)
+		// In normal relative drivers, we'll use the raw mickeys anyways, so speed should also have no effect.
+		int33_set_mouse_speed(1, 1);
+
+		// Get what the int33 driver thinks the current coordinate range is
+		max_x = 0; max_y = 0;
+		int33_get_max_coordinates(&max_x, &max_y);
+		if (!max_x || !max_y) { max_x = 640; max_y = 200; } // For really bad drivers
+
+		// Multiply that by 8x16 to match dosemu coordinate range
+		// (and also in case the driver-provided coordinate range is too small)
+		max_x *= 8; max_y *= 16;
+
+		// And use that to define the window size which is what most
+		// absolute drivers will use to define the coordinate range
+		int33_set_horizontal_window(0, max_x);
+		int33_set_vertical_window(0, max_y);
 
 		int33_set_event_handler(INT33_EVENT_MASK_ALL, int33_mouse_callback);
 

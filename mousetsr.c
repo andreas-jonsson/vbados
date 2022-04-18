@@ -1263,13 +1263,14 @@ static void int33_handler(union INTPACK r)
 		_fmemcpy(&data, MK_FP(r.x.es, r.x.dx), sizeof(TSRDATA));
 		break;
 	case INT33_SET_MOUSE_SENSITIVITY:
-		dlog_print("Mouse set speed x=");
+		dlog_print("Mouse set sensitivity x=");
 		dlog_printd(r.x.bx);
 		dlog_print(" y=");
 		dlog_printd(r.x.cx);
 		dlog_print(" threshold=");
 		dlog_printd(r.x.dx);
 		dlog_endline();
+		// TODO According to cutemouse, sensitivity != mickeysPerLine
 		data.mickeysPerLine.x = r.x.bx;
 		data.mickeysPerLine.y = r.x.cx;
 		data.doubleSpeedThreshold = r.x.dx;
