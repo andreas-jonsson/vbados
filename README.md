@@ -18,19 +18,27 @@ The VB stands for "Very Basic" :)
 
 # Downloads
 
+The current release is _0.52_. 
 You can get a recent build from the ready-to-go floppy disk image:
 
-[VBADOS.FLP](https://depot.javispedro.com/vbox/vbados/vbados.flp)
+[💾 VBADOS.FLP](https://depot.javispedro.com/vbox/vbados/vbados.flp)
+(contains VBMOUSE.EXE, VBSF.EXE, VBMOUSE.DRV)
 
 Alternatively, here is a .zip containing all binaries:
 
-[VBADOS.ZIP](https://depot.javispedro.com/vbox/vbados/vbados.zip)
+[📦 VBADOS.ZIP](https://depot.javispedro.com/vbox/vbados/vbados.zip)
 
-For the source code, you can check out this git repository.
+Older versions may be archived [here](https://depot.javispedro.com/vbox/vbados/releases/).
+For the source code, you can check out [this git repository](..).
 
 # Documentation
 
 [TOC]
+
+## Version history
+
+* _0.52_: this version switches VBMOUSE to using the PS/2 BIOS with 1-byte sized packets, to improve
+wheel mouse compatibility.
 
 ## VBMOUSE.EXE - DOS mouse driver
 
@@ -90,8 +98,6 @@ the following additional features:
 
 * **Scroll wheel and 3 button mouse support**, using the API from CuteMouse.  
   This works in VirtualBox/VMware as well as real PS/2 hardware (if the BIOS is compatible).
-  Note *wheel support is broken when running under 386-enhanced mode Windows*, 
-  since it will not let PS/2 wheel data reach the DOS driver.
 
 * **Sending scroll keys on wheel movements**,
   i.e. faking wheel scroll support on programs that don't support the CuteMouse API
@@ -107,11 +113,12 @@ the following additional features:
   (via int33h) instead of accessing the mouse directly,
   so that Windows 3.x gains some of the features of this driver
   (like mouse integration in VirtualBox/VMware).  
-  There is some preliminary mouse wheel support based on the ideas from
-  [vmwmouse](https://github.com/NattyNarwhal/vmwmouse/issues/5),
-  but it only works under real-mode Windows.  
+  There is scroll wheel support based on the ideas from
+  [vmwmouse](https://github.com/NattyNarwhal/vmwmouse/issues/5).  
   [▶️ Mouse wheel scrolling under real-mode Windows 3.0](https://depot.javispedro.com/vbox/vbados/vbm_wheel_win30.webm).  
-  As of right now wheel support is still broken under 386-enhanced mode Windows.
+  However, under 386 enhanced mode Windows, scroll wheel support needs an [additional patch](#scroll-wheel-support-under-windows-386-enhanced-mode), 
+  since normally it will not let PS/2 wheel data reach the DOS driver.
+  Most driver functionality should work even without this patch.
 
 ### Usage
 
@@ -441,15 +448,81 @@ mouse motion information via the PS/2 mouse. However, the PS/2 controller will s
 whenever mouse motion happens, and it will still report mouse button presses. In fact, the only way
 to obtain mouse button presses (and wheel movement) is still through the PS/2 controller.
 
-### Future work
+### Mouse under Windows 386 enhanced mode
 
-* Get the scroll wheel to work under 386-enhanced Windows, but this requires
-  looking into VKD.386 (or a replacement of it).
+Under Windows, the [special vbmouse.drv](#windows-3x-driver) that you should have already installed
+takes care of making Windows listen to mouse events coming from the DOS driver (_vbmouse.exe_). 
 
-* Investigate whether it makes sense to configure the PS/2 BIOS in "1 packet mode"
-  like the [Microsoft Mouse driver does](https://www.betaarchive.com/wiki/index.php/Microsoft_KB_Archive/97883)
-  to aid scroll wheel compatibility. Currently we set it to either 3 packet
-  or 4 packet depending on whether we detect a wheel mouse or not.
+However, the story is slightly different when running Windows in 386 enhanced mode. In this mode,
+Windows is actually virtualizing the PS/2 hardware in order to share it between different
+DOS applications (each running in its own VM) _and_ the "system VM" which contains all Windows applications
+and Windows drivers.
+
+This means that, effectively, under Win386 the DOS mouse driver is running _under_ the virtualized PS/2 hardware.
+If you are using the vbmouse.drv, the DOS mouse driver then forwards back the information back to Windows.
+So the entire situation is a bit confusing.
+Mouse events go through several layers.
+For example, if using vbmouse.exe+vbmouse.drv, and running a Windows application, the path looks as follows: 
+
+1. The real PS/2 controller
+2. Win386's `VKD.386`, which virtualizes both the keyboard and mouse PS/2 controllers, 
+   and sends the data to the currently active _Virtual 8086 Machine_ aka _VM_.
+   For a Windows application, it will always be the System VM.
+3. The real PS/2 BIOS but running _inside_ the System VM, 
+   which reads the data from the virtualized PS/2 controller.
+4. Again, `VKD.386`, which intercepts the call from the PS/2 BIOS and simply forwards the data.
+5. The DOS mouse driver (vbmouse.exe) instance inside the System VM,
+   which receives the callback from the virtualized PS/2 BIOS.
+6. `VMD.386` which virtualizes the DOS mouse driver and performs real-mode<->protected-mode pointer conversions
+   if necessary.
+7. The Windows mouse driver (vbmouse.drv) which receives the callback from the DOS mouse driver and sends it
+   to Windows USER.EXE.
+8. Windows USER.EXE then posts the appropriate message to the appropriate window.
+
+This is actually similarly complex even if you use the native PS/2 drivers from Windows; you just skip steps 5 & 6.
+
+When you use a DOS application fullscreen, starting from step 2, the callback is delivered to _another_ VM,
+the one where your DOS application is running in.
+This VM will have its own DOS mouse driver running which may (or may not) forward the data to the DOS application.
+
+A windowed DOS application behaves more like a Windows app; in this case, at step 8, Windows realizes the
+window is a DOS window and calls the DOS mouse driver inside that DOS VM with a special hook.
+
+There are a couple of integrations/hooks that are necessary for proper integration of the DOS mouse driver
+with Windows so that this entire dance works.
+
+1. You need to load the DOS mouse driver before Windows.
+2. When Windows loads, we let it know that we are a DOS mouse driver and that we need to be replicated 
+   on each new DOS VM. This is done by hooking int2Fh/ax=0x1605 callback, then replying
+   to it with information about our memory segments.
+3. When VMD loads, we inform it that we support the hooks for windowed DOS application.
+   This means we have to provide an event handler that Windows will call when someone clicks inside a DOS window
+   where our driver is running.  
+   Not dissimilar to what VirtualBox/VMware are doing on a literally higher level, actually!
+   
+See [int2fwin.h](../tree/int2fwin.h) for details on these hooks, and/or grep for the macro `USE_WIN386`.
+
+#### Scroll wheel support (under Windows 386 enhanced mode)
+
+Unfortunately, VKD's PS/2 emulation/virtualization is incomplete and will not forward special commands
+to the real mouse. This means we cannot configure the PS/2 mouse to support scroll wheel mouse operation when
+running inside Windows/386.
+Not even the Windows mouse driver itself can, since it will also run inside VKD's emulation.
+
+One solution is to patch VKD. Fortunately, the source of VKD.386 is on the Windows 3.1 DDK.
+
+Here is a [patch to the VKD source code](https://depot.javispedro.com/vbox/vbados/wheelvkd_v1.patch).
+It is really a very simple patch that will break any non-wheel aware mouse driver.
+It makes VKD set the mouse to "Intellimouse"/4-byte packet mode unconditionally at startup,
+returns the wheel mouse device ID whenever asked, and removes all the packet segmentation code.
+Meaning overflow conditions may not be handled gracefully, dropping bytes randomly,
+so the DOS driver may need some synchronization code itself.
+However the code was [not that functional to begin with](http://www.os2museum.com/wp/jumpy-ps2-mouse-in-enhanced-mode-windows-3-x/),
+so not much of value is lost.
+The 4-byte packets is what breaks most other drivers, but when using vbmouse.exe+vbmouse.drv,
+this shouldn't be a problem either.
+
+## Future work
 
 * The VirtualBox BIOS can crash on warm-boot (e.g. Ctrl+Alt+Del) if the mouse
   was in the middle of sending a packet. A VM reboot fixes it.
@@ -460,3 +533,4 @@ to obtain mouse button presses (and wheel movement) is still through the PS/2 co
   Also, unlike VBMOUSE, where most of the code  is common to all virtualizers,
   it will probably make more sense to make a separate "VMwareSF" TSR since most of
   the VBSF code would be not be useful.
+
