@@ -69,7 +69,7 @@ the following additional features:
   This is because the cursor is actually rendered by the host rather than the guest OS,
   thus feeling much more responsive.  
   [▶️ MS-DOS Edit / QBasic](https://depot.javispedro.com/vbox/vbados/vbm_edit.webm).  
-  [▶️ Adlib Composer](https://depot.javispedro.com/vbox/vbados/bm_adlibcomposer.webm).  
+  [▶️ Adlib Composer](https://depot.javispedro.com/vbox/vbados/vbm_adlibcomposer.webm).  
 
 * Note that many MS-DOS programs do not rely on the mouse driver to render the
   cursor, or even just read the "relative" mouse motion from the mouse itself and
