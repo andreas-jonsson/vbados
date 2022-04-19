@@ -97,7 +97,7 @@ static ps2m_err ps2m_init(uint8_t packet_size);
 	"end:" \
 	__parm [bh] \
 	__value [ah] \
-	__modify [ax]
+	__modify [ax bx]
 
 static ps2m_err ps2m_reset(void);
 #pragma aux ps2m_reset = \
@@ -110,7 +110,7 @@ static ps2m_err ps2m_reset(void);
 	"dec ah" \
 	"end:" \
 	__value [ah] \
-	__modify [ax]
+	__modify [ax bx]
 
 static ps2m_err ps2m_get_device_id(uint8_t __far *device_id);
 #pragma aux ps2m_get_device_id = \
@@ -125,7 +125,7 @@ static ps2m_err ps2m_get_device_id(uint8_t __far *device_id);
 	"end:" \
 	__parm [es di] \
 	__value [ah] \
-	__modify [ax]
+	__modify [ax bx]
 
 static ps2m_err ps2m_set_resolution(uint8_t resolution);
 #pragma aux ps2m_set_resolution = \

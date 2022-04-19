@@ -60,7 +60,7 @@ static void vbox_send_request(uint16_t iobase, uint32_t addr);
 	"out dx, eax" \
 	"pop eax" \
 	__parm [dx] [bx ax] \
-	__modify [dx]
+	__modify []
 
 /** Finds the VirtualBox PCI device and reads the current IO base.
   * @returns 0 if the device was found. */
