@@ -110,9 +110,11 @@ typedef struct tsrdata {
 	/** Whether the current mouse has a wheel (and support is enabled). */
 	bool haswheel;
 #endif
-	/** Packet size that we are currently using. */
+	/** Packet size that the BIOS is currently using. Either 1 (streaming) or 3 (plain). */
+	uint8_t bios_packet_size;
+	/** Packet size that we are currently expecting internally. Usually 3 (plain) or 4 (with wheel). */
 	uint8_t packet_size;
-	/** Number of bytes received so far (< packet_size). */
+	/** For streaming mode: number of bytes received so far (< packet_size). */
 	uint8_t cur_packet_bytes;
 	/** Stores the bytes received so far (cur_bytes). */
 	uint8_t ps2_packet[MAX_PS2_PACKET_SIZE];
@@ -195,6 +197,8 @@ typedef struct tsrdata {
 	/** Information that we pass to Windows 386 on startup. */
 	win386_startup_info w386_startup;
 	win386_instance_item w386_instance[2];
+	/** Whether Windows 386 is running. */
+	bool haswin386 : 1;
 	/** Whether Windows 386 is rendering the cursor for us,
 	 *  and therefore we should hide our own. */
 	bool w386cursor : 1;

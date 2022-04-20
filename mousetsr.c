@@ -846,11 +846,26 @@ static void handle_ps2_packet(void)
 
 /** PS/2 BIOS calls this routine to notify mouse events.
  *  In our case, each time we receive a byte from the mouse. */
-static void ps2_mouse_handler(unsigned byte)
+static void ps2_mouse_handler(uint16_t word0, uint16_t word1, uint16_t word2, uint16_t word3)
 {
-#pragma aux ps2_mouse_handler "*" parm caller [ax] modify [ax bx cx dx si di es fs gs]
+#pragma aux ps2_mouse_handler "*" parm caller [ax] [bx] [cx] [dx] modify [ax bx cx dx si di es fs gs]
 
 	uint16_t ticks = bda_get_tick_count_lo();
+
+	// Are we using the BIOS in 3-packet mode directly?
+	if (data.bios_packet_size == PS2M_PACKET_SIZE_PLAIN) {
+		// Just forward it to the full packet handler.
+		data.ps2_packet[0] = word0;
+		data.ps2_packet[1] = word1;
+		data.ps2_packet[2] = word2;
+		(void) word3;
+		handle_ps2_packet();
+		return;
+	}
+
+	// Otherwise we are using the BIOS in 1-packet size mode,
+	// receiving one byte at a time.
+	// We have to compute synchronization ourselves.
 
 #if TRACE_EVENTS
 	dlog_print("ps2 callback byte ");
@@ -858,7 +873,7 @@ static void ps2_mouse_handler(unsigned byte)
 	dlog_putc('/');
 	dlog_printd(data.packet_size);
 	dlog_putc('=');
-	dlog_printx(byte & 0xFF);
+	dlog_printx(word0 & 0xFF);
 	dlog_endline();
 #endif /* TRACE_EVENTS */
 
@@ -876,10 +891,10 @@ static void ps2_mouse_handler(unsigned byte)
 		data.cur_packet_ticks = ticks;
 	}
 
-	data.ps2_packet[data.cur_packet_bytes] = byte;
+	data.ps2_packet[data.cur_packet_bytes] = word0;
 	data.cur_packet_bytes++;
 
-	if (data.cur_packet_bytes == data.packet_size) {
+	if (data.cur_packet_bytes >= data.packet_size) {
 		handle_ps2_packet();
 		data.cur_packet_bytes = 0;
 	}
@@ -904,9 +919,9 @@ void __declspec(naked) __far ps2_mouse_callback()
 		pop ds
 
 		mov ax,[bp+28+6]	; Status
-		; mov bx,[bp+28+4]	; X
-		; mov cx,[bp+28+2]	; Y
-		; mov dx,[bp+28+0]	; Z
+		mov bx,[bp+28+4]	; X
+		mov cx,[bp+28+2]	; Y
+		mov dx,[bp+28+0]	; Z
 
 		call ps2_mouse_handler
 
@@ -959,24 +974,53 @@ static void set_absolute(bool enable)
 
 static void reset_mouse_hardware()
 {
+	int err;
+
 	// Stop receiving bytes...
 	ps2m_enable(false);
 
-	// Let the BIOS know we want every packet separately
-	// This also resets the mouse
-	ps2m_init(1);
-
+	data.bios_packet_size = PS2M_PACKET_SIZE_STREAMING; // Default to use the BIOS in streaming mode
 	data.packet_size = PS2M_PACKET_SIZE_PLAIN;
 	data.cur_packet_bytes = 0;
 	data.cur_packet_ticks = 0;
 
+#if USE_WIN386
+	if (data.haswin386) {
+		uint8_t device_id;
+		// Normally, win386 does not support anything except PS2M_PACKET_SIZE_PLAIN
+		// However, if we detect our special wheelvkd driver is running...
+		err = ps2m_get_device_id(&device_id);
+		if (err || device_id != PS2M_DEVICE_ID_IMPS2) {
+			// Our special driver is not running...
+			dlog_puts("Windows running, using plain packet size");
+			data.bios_packet_size = PS2M_PACKET_SIZE_PLAIN;
+		}
+	}
+#endif
+
+	// Try to init PS/2 BIOS with desired packet size / streaming mode
+	err = ps2m_init(data.bios_packet_size);
+
+	if (err && data.bios_packet_size != PS2M_PACKET_SIZE_PLAIN) {
+		// However, if there is an error, drop down to plain packet size
+		// Emulators like DOSBox don't support anything but plain packet size
+		dlog_puts("BIOS didn't support streaming mode, using plain packet size");
+		data.bios_packet_size = PS2M_PACKET_SIZE_PLAIN;
+		err = ps2m_init(data.bios_packet_size);
+	}
+	if (err) {
+		dlog_puts("error on ps2m_init during reset, ignoring");
+	}
+
 #if USE_WHEEL
-	if (data.usewheel && ps2m_detect_wheel()) {
+	if (data.usewheel
+	        && data.bios_packet_size == PS2M_PACKET_SIZE_STREAMING
+	        && ps2m_detect_wheel()) {
 		dlog_puts("PS/2 wheel detected");
 		data.haswheel = true;
 		data.packet_size = PS2M_PACKET_SIZE_EXT;
 	} else {
-		dlog_puts("PS/2 wheel NOT detected");
+		if (data.usewheel) dlog_puts("PS/2 wheel NOT detected");
 		data.haswheel = false;
 	}
 #endif
@@ -1422,6 +1466,12 @@ static void int2f_handler(union INTPACK r)
 		data.w386_instance[1].size = 0;
 		r.x.es = FP_SEG(&data.w386_startup);
 		r.x.bx = FP_OFF(&data.w386_startup);
+		data.haswin386 = true;
+		break;
+	case INT2F_NOTIFY_WIN386_SHUTDOWN:
+		dlog_puts("Windows is stopping");
+		data.haswin386 = false;
+		data.w386cursor = false;
 		break;
 	case INT2F_NOTIFY_DEVICE_CALLOUT:
 		switch (r.x.bx) {

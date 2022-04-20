@@ -246,7 +246,7 @@ static int configure_driver(LPTSRDATA data)
 	dlog_init();
 
 	// Check for PS/2 mouse BIOS availability
-	if ((err = ps2m_init(1))) {
+	if ((err = ps2m_init(PS2M_PACKET_SIZE_PLAIN))) {
 		fprintf(stderr, "Cannot init PS/2 mouse BIOS, err=%d\n", err);
 		// Can't do anything without PS/2
 		return err;

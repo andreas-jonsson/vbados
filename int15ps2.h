@@ -31,10 +31,10 @@
 typedef uint8_t ps2m_err;
 enum ps2m_errors {
 	PS2M_ERR_INVALID_FUNCTION = 1,
-	PSM2_ERR_INVALID_INPUT    = 2,
-	PSM2_ERR_INTERFACE_ERROR  = 3,
-	PSM2_ERR_RESEND           = 4,
-	PSM2_ERR_NO_CALLBACK      = 5,
+	PS2M_ERR_INVALID_INPUT    = 2,
+	PS2M_ERR_INTERFACE_ERROR  = 3,
+	PS2M_ERR_RESEND           = 4,
+	PS2M_ERR_NO_CALLBACK      = 5,
 };
 
 enum ps2m_status {
@@ -48,8 +48,9 @@ enum ps2m_status {
 };
 
 enum ps2m_packet_size {
-	PS2M_PACKET_SIZE_PLAIN = 3,
-	PS2M_PACKET_SIZE_EXT   = 4,
+	PS2M_PACKET_SIZE_STREAMING = 1,
+	PS2M_PACKET_SIZE_PLAIN     = 3,
+	PS2M_PACKET_SIZE_EXT       = 4,
 };
 
 enum ps2m_device_ids {

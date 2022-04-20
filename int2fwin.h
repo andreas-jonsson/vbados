@@ -45,6 +45,8 @@ enum int2f_functions
 {
 	/** Notification sent when Windows386 is starting up. */
 	INT2F_NOTIFY_WIN386_STARTUP    = 0x1605,
+	/** Notification sent when Windows386 is terminating. */
+	INT2F_NOTIFY_WIN386_SHUTDOWN   = 0x1606,
 	/** Notification sent by a VxD that wants to invoke a function in a real-mode driver. */
 	INT2F_NOTIFY_DEVICE_CALLOUT    = 0x1607,
 
