@@ -18,7 +18,7 @@ The VB stands for "Very Basic" :)
 
 # Downloads
 
-The current release is _0.52_. 
+The current release is _0.53_.
 You can get a recent build from the ready-to-go floppy disk image:
 
 [💾 VBADOS.FLP](https://depot.javispedro.com/vbox/vbados/vbados.flp)
@@ -37,6 +37,7 @@ For the source code, you can check out [this git repository](..).
 
 ## Version history
 
+* _0.53_: brings back support for 3-byte sized packets on BIOS, since some BIOS and emulators (incl Win386 and DOSBox) are not compatible with 1-byte packets.
 * _0.52_: this version switches VBMOUSE to using the PS/2 BIOS with 1-byte sized packets, to improve
 wheel mouse compatibility.
 
