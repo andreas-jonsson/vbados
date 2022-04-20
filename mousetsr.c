@@ -996,7 +996,7 @@ static void reset_mouse_hardware()
 			data.bios_packet_size = PS2M_PACKET_SIZE_PLAIN;
 		}
 	}
-#endif
+#endif /* USE_WIN386 */
 
 	// Try to init PS/2 BIOS with desired packet size / streaming mode
 	err = ps2m_init(data.bios_packet_size);
@@ -1023,7 +1023,14 @@ static void reset_mouse_hardware()
 		if (data.usewheel) dlog_puts("PS/2 wheel NOT detected");
 		data.haswheel = false;
 	}
-#endif
+#if USE_VMWARE
+	// With the VMware backdoor, we can get the wheel information even if
+	// we couldn't configure the PS/2 mouse at all.
+	if (data.vmwavail && data.usewheel) {
+		data.haswheel = true;
+	}
+#endif /* USE_VMWARE */
+#endif /* USE_WHEEL */
 
 	ps2m_set_resolution(PS2M_RESOLUTION_200);
 	ps2m_set_sample_rate(PS2M_SAMPLE_RATE_80);
