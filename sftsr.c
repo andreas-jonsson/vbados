@@ -35,6 +35,7 @@ static SHFLDIRINFO_WITH_NAME_BUF(shfldirinfo, SHFL_MAX_LEN);
 
 static union {
 	SHFLVOLINFO volinfo;
+	SHFLFSOBJINFO objinfo;
 	SHFLCREATEPARMS create;
 } parms;
 
@@ -604,6 +605,78 @@ static void handle_lock(union INTPACK __far *r)
 	clear_dos_err(r);
 }
 
+static void handle_seek_end(union INTPACK __far *r)
+{
+	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
+	unsigned openfile = get_sft_openfile_index(sft);
+	uint8_t __far *buffer = data.dossda->cur_dta;
+	long offset = ((uint32_t)(r->x.cx) << 16) | (uint32_t)(r->x.dx);
+	unsigned buf_size = sizeof(SHFLFSOBJINFO);
+	vboxerr err;
+
+	dlog_print("handle_seek_end offset=");
+	dlog_printd(offset);
+	dlog_endline();
+
+	memset(&parms.objinfo, buf_size, sizeof(SHFLFSOBJINFO));
+
+	// Get the current file size
+	err = vbox_shfl_info(&data.vb, data.hgcm_client_id,
+	                     data.files[openfile].root, data.files[openfile].handle,
+	                     SHFL_INFO_GET | SHFL_INFO_FILE, &buf_size, &parms.objinfo);
+	if (err) {
+		set_vbox_err(r, err);
+		return;
+	}
+
+	if (!is_valid_dos_file(&parms.objinfo)) {
+		// If for any reason the file grows to be too long, fail..
+		set_dos_err(r, DOS_ERROR_SEEK);
+		return;
+	}
+
+	// Update current file size
+	sft->f_size = parms.objinfo.cbObject;
+
+	dlog_print("seek_end filesize=");
+	dlog_printd(sft->f_size);
+	dlog_endline();
+
+	// Update the current offset pointer
+	if (offset < 0 && sft->f_size < -offset ) {
+		// Seeking beyond start of file
+		set_dos_err(r, DOS_ERROR_SEEK);
+		return;
+	} else if (offset > 0) {
+		dlog_puts("seek_end enlarge");
+		// Seeking past the end of the file, enlarge
+		err = vbox_shfl_set_file_size(&data.vb, data.hgcm_client_id,
+		                              data.files[openfile].root, data.files[openfile].handle,
+		                              sft->f_size + offset);
+		if (err) {
+			set_vbox_err(r, err);
+			return;
+		}
+
+		// Update the file size again, and move the pointer to the end
+		sft->f_size = sft->f_size + offset;
+		sft->f_pos  = sft->f_size;
+	} else {
+		// Regular seek
+		sft->f_pos = sft->f_size + offset;
+	}
+
+	dlog_print("seek_end new pos=");
+	dlog_printd(sft->f_pos);
+	dlog_endline();
+
+	// Return new file position in dx:ax
+	r->x.dx = sft->f_pos >> 16;
+	r->x.ax = sft->f_pos ;
+
+	clear_dos_err(r);
+}
+
 static void handle_close_all(union INTPACK __far *r)
 {
 	vboxerr err;
@@ -675,7 +748,7 @@ static void handle_rename(union INTPACK __far *r)
 	copy_drive_relative_filename(&shflstr.shflstr, src);
 	translate_filename_to_host(&shflstr.shflstr);
 
-	// Reusing shfldirinfo buffer space here
+	// Reusing shfldirinfo buffer space here for our second filename
 	// Hoping no one does concurrent find_next and rename
 	copy_drive_relative_filename(&shfldirinfo.dirinfo.name, dst);
 	translate_filename_to_host(&shfldirinfo.dirinfo.name);
@@ -1117,6 +1190,8 @@ static void handle_get_disk_free(union INTPACK __far *r)
 
 	dlog_puts("handle disk free");
 
+	memset(&parms.volinfo, 0, sizeof(SHFLVOLINFO));
+
 	// Ask VirtualBox for disk space info
 	err = vbox_shfl_info(&data.vb, data.hgcm_client_id, root, SHFL_HANDLE_ROOT,
 	                     SHFL_INFO_GET | SHFL_INFO_VOLUME, &buf_size, &parms.volinfo);
@@ -1184,6 +1259,9 @@ static bool int2f_11_handler(union INTPACK r)
 	case DOS_FN_LOCK:
 		handle_lock(&r);
 		return true;
+	case DOS_FN_SEEK_END:
+		handle_seek_end(&r);
+		return true;
 	case DOS_FN_DELETE:
 		handle_delete(&r);
 		return true;
@@ -1208,10 +1286,6 @@ static bool int2f_11_handler(union INTPACK r)
 		return true;
 	case DOS_FN_GET_DISK_FREE:
 		handle_get_disk_free(&r);
-		return true;
-	case DOS_FN_SEEK_END:
-		// I have no testcase for this function, so unsupported
-		set_dos_err(&r, DOS_ERROR_INVALID_FUNCTION);
 		return true;
 	}
 

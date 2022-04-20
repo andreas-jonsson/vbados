@@ -356,7 +356,7 @@ static vboxerr vbox_shfl_info(LPVBOXCOMM vb, hgcm_client_id_t client_id, SHFLROO
 	// arg 3 inout uint32 "size"
 	vbox_hgcm_set_parameter_uint32(req, 3, *size);
 
-	// arg 4 in void "buffer"
+	// arg 4 inout void "buffer"
 	vbox_hgcm_set_parameter_pointer(req, 4, *size, buffer);
 
 	if ((err = vbox_hgcm_do_call_sync(vb, req)) < 0)
@@ -457,6 +457,29 @@ static vboxerr vbox_shfl_query_map_info(LPVBOXCOMM vb, hgcm_client_id_t client_i
 
 	*flags = vbox_hgcm_get_parameter_uint64(req, 3);
 	*version = vbox_hgcm_get_parameter_uint32(req, 4);
+
+	return req->header.result;
+}
+
+static vboxerr vbox_shfl_set_file_size(LPVBOXCOMM vb, hgcm_client_id_t client_id,
+                                       SHFLROOT root, SHFLHANDLE handle, unsigned long size)
+{
+	VMMDevHGCMCall __far *req = (void __far *) vb->buf;
+	vboxerr err;
+
+	vbox_hgcm_init_call(req, client_id, SHFL_FN_SET_FILE_SIZE, 3);
+
+	// arg 0 in uint32 "root"
+	vbox_hgcm_set_parameter_shflroot(req, 0, root);
+
+	// arg 1 in uint64 "handle"
+	vbox_hgcm_set_parameter_shflhandle(req, 1, handle);
+
+	// arg 2 in uint64 "new_size"
+	vbox_hgcm_set_parameter_uint32(req, 2, size);
+
+	if ((err = vbox_hgcm_do_call_sync(vb, req)) < 0)
+		return err;
 
 	return req->header.result;
 }
