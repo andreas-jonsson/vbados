@@ -109,7 +109,7 @@ the following additional features:
   This is not enabled by default, see `wheelkey` below.
 
 * The current version uses about 10KiB of memory (when logging is disabled),
-  and will autoload itself into HMA if available.  
+  and will autoload itself into upper memory if available.  
   ![VBMouse Memory Usage](https://depot.javispedro.com/vbox/vbados/vbmouse_mem.png).  
 
 * A companion driver for Windows 3.x (_VBMOUSE.DRV_) that uses this driver 
