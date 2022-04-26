@@ -43,6 +43,8 @@ static uint8_t map_shfl_attr_to_dosattr(const SHFLFSOBJATTR *a)
 {
 	// DOS attributes are in the higher word of fMode (see RTFS_DOS_*)
 	uint8_t attr = (a->fMode >> 16) & 0x3F;
+	// Albeit also map the UNIX S_IFDIR attrib to DOS SUBDIR one,
+	// since at least on Linux hosts the DOS one may not be set
 	if (a->fMode & 0x4000U) attr |= _A_SUBDIR;
 	return attr;
 }
@@ -487,6 +489,11 @@ static void handle_close(union INTPACK __far *r)
 	}
 
 	dos_sft_decref(sft);
+	if (sft->num_handles == 0xFFFF) {
+		// SFT is no longer referenced, clear it up
+		set_sft_openfile_index(sft, 0);
+		sft->num_handles = 0;
+	}
 
 	data.files[openfile].root = SHFL_ROOT_NIL;
 	data.files[openfile].handle = SHFL_HANDLE_NIL;
