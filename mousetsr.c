@@ -1109,17 +1109,17 @@ static void reset_mouse_state()
 
 static void return_clear_wheel_counter(union INTPACK __far *r)
 {
-	r->x.cx = snap_to_grid(data.wheel_last.x, data.screen_granularity.x);
-	r->x.dx = snap_to_grid(data.wheel_last.y, data.screen_granularity.y);
-	r->x.bx = data.wheel_delta;
+	r->w.cx = snap_to_grid(data.wheel_last.x, data.screen_granularity.x);
+	r->w.dx = snap_to_grid(data.wheel_last.y, data.screen_granularity.y);
+	r->w.bx = data.wheel_delta;
 	data.wheel_delta = 0;
 }
 
 static void return_clear_button_counter(union INTPACK __far *r, struct buttoncounter *c)
 {
-	r->x.cx = snap_to_grid(c->last.x, data.screen_granularity.x);
-	r->x.dx = snap_to_grid(c->last.y, data.screen_granularity.y);
-	r->x.bx = c->count;
+	r->w.cx = snap_to_grid(c->last.x, data.screen_granularity.x);
+	r->w.dx = snap_to_grid(c->last.y, data.screen_granularity.y);
+	r->w.bx = c->count;
 	c->count = 0;
 }
 
@@ -1127,15 +1127,15 @@ static void return_clear_button_counter(union INTPACK __far *r, struct buttoncou
 static void int33_handler(union INTPACK r)
 #pragma aux int33_handler "*" parm caller [] modify [ax bx cx dx si di es fs gs]
 {
-	switch (r.x.ax) {
+	switch (r.w.ax) {
 	case INT33_RESET_MOUSE:
 		dlog_puts("Mouse reset");
 		reload_video_info();
 		reset_mouse_settings();
 		reset_mouse_hardware();
 		reset_mouse_state();
-		r.x.ax = INT33_MOUSE_FOUND;
-		r.x.bx = NUM_BUTTONS;
+		r.w.ax = INT33_MOUSE_FOUND;
+		r.w.bx = NUM_BUTTONS;
 		break;
 	case INT33_SHOW_CURSOR:
 #if TRACE_EVENTS
@@ -1155,9 +1155,9 @@ static void int33_handler(union INTPACK r)
 #if TRACE_EVENTS
 		dlog_puts("Mouse get position");
 #endif
-		r.x.cx = snap_to_grid(data.pos.x, data.screen_granularity.x);
-		r.x.dx = snap_to_grid(data.pos.y, data.screen_granularity.y);
-		r.x.bx = data.buttons;
+		r.w.cx = snap_to_grid(data.pos.x, data.screen_granularity.x);
+		r.w.dx = snap_to_grid(data.pos.y, data.screen_granularity.y);
+		r.w.bx = data.buttons;
 #if USE_WHEEL
 		if (data.haswheel) {
 			r.h.bh = data.wheel_delta;
@@ -1169,8 +1169,8 @@ static void int33_handler(union INTPACK r)
 #if TRACE_EVENTS
 		dlog_puts("Mouse set position");
 #endif
-		data.pos.x = r.x.cx;
-		data.pos.y = r.x.dx;
+		data.pos.x = r.w.cx;
+		data.pos.y = r.w.dx;
 		data.pos_frac.x = 0;
 		data.pos_frac.y = 0;
 		data.delta.x = 0;
@@ -1183,11 +1183,11 @@ static void int33_handler(union INTPACK r)
 #if TRACE_EVENTS
 		dlog_puts("Mouse get button pressed counter");
 #endif
-		r.x.ax = data.buttons;
+		r.w.ax = data.buttons;
 #if USE_WHEEL
 		if (data.haswheel) {
 			r.h.bh = data.wheel_delta;
-			if (r.x.bx == -1) {
+			if (r.w.bx == -1) {
 				// Asked for wheel information
 				return_clear_wheel_counter(&r);
 				break;
@@ -1196,17 +1196,17 @@ static void int33_handler(union INTPACK r)
 #endif
 		// Regular button information
 		return_clear_button_counter(&r,
-		    &data.button[MIN(r.x.bx, NUM_BUTTONS - 1)].pressed);
+		    &data.button[MIN(r.w.bx, NUM_BUTTONS - 1)].pressed);
 		break;
 	case INT33_GET_BUTTON_RELEASED_COUNTER:
 #if TRACE_EVENTS
 		dlog_puts("Mouse get button released counter");
 #endif
-		r.x.ax = data.buttons;
+		r.w.ax = data.buttons;
 #if USE_WHEEL
 		if (data.haswheel) {
 			r.h.bh = data.wheel_delta;
-			if (r.x.bx == -1) {
+			if (r.w.bx == -1) {
 				// Asked for wheel information
 				return_clear_wheel_counter(&r);
 				break;
@@ -1214,129 +1214,129 @@ static void int33_handler(union INTPACK r)
 		}
 #endif
 		return_clear_button_counter(&r,
-		    &data.button[MIN(r.x.bx, NUM_BUTTONS - 1)].released);
+		    &data.button[MIN(r.w.bx, NUM_BUTTONS - 1)].released);
 		break;
 	case INT33_SET_HORIZONTAL_WINDOW:
 		dlog_print("Mouse set horizontal window [");
-		dlog_printd(r.x.cx);
+		dlog_printd(r.w.cx);
 		dlog_putc(',');
-		dlog_printd(r.x.dx);
+		dlog_printd(r.w.dx);
 		dlog_puts("]");
 		// Recheck in case someone changed the video mode
 		refresh_video_info();
-		data.min.x = r.x.cx;
-		data.max.x = r.x.dx;
+		data.min.x = r.w.cx;
+		data.max.x = r.w.dx;
 		bound_position_to_window();
 		break;
 	case INT33_SET_VERTICAL_WINDOW:
 		dlog_print("Mouse set vertical window [");
-		dlog_printd(r.x.cx);
+		dlog_printd(r.w.cx);
 		dlog_putc(',');
-		dlog_printd(r.x.dx);
+		dlog_printd(r.w.dx);
 		dlog_puts("]");
 		refresh_video_info();
-		data.min.y = r.x.cx;
-		data.max.y = r.x.dx;
+		data.min.y = r.w.cx;
+		data.max.y = r.w.dx;
 		bound_position_to_window();
 		break;
 	case INT33_SET_GRAPHICS_CURSOR:
 		dlog_puts("Mouse set graphics cursor");
 		hide_cursor();
-		data.cursor_hotspot.x = r.x.bx;
-		data.cursor_hotspot.y = r.x.cx;
-		_fmemcpy(data.cursor_graphic, MK_FP(r.x.es, r.x.dx), sizeof(data.cursor_graphic));
+		data.cursor_hotspot.x = r.w.bx;
+		data.cursor_hotspot.y = r.w.cx;
+		_fmemcpy(data.cursor_graphic, MK_FP(r.w.es, r.w.dx), sizeof(data.cursor_graphic));
 		load_cursor();
 		refresh_cursor();
 		break;
 	case INT33_SET_TEXT_CURSOR:
 		dlog_print("Mouse set text cursor ");
-		dlog_printd(r.x.bx);
+		dlog_printd(r.w.bx);
 		dlog_endline();
 		hide_cursor();
-		data.cursor_text_type = r.x.bx;
-		data.cursor_text_and_mask = r.x.cx;
-		data.cursor_text_xor_mask = r.x.dx;
+		data.cursor_text_type = r.w.bx;
+		data.cursor_text_and_mask = r.w.cx;
+		data.cursor_text_xor_mask = r.w.dx;
 		refresh_cursor();
 		break;
 	case INT33_GET_MOUSE_MOTION:
 #if TRACE_EVENTS
 		dlog_puts("Mouse get motion");
 #endif
-		r.x.cx = data.delta.x;
-		r.x.dx = data.delta.y;
+		r.w.cx = data.delta.x;
+		r.w.dx = data.delta.y;
 		data.delta.x = 0;
 		data.delta.y = 0;
 		break;
 	case INT33_SET_EVENT_HANDLER:
 		dlog_puts("Mouse set event handler");
-		data.event_mask = r.x.cx;
-		data.event_handler = MK_FP(r.x.es, r.x.dx);
+		data.event_mask = r.w.cx;
+		data.event_handler = MK_FP(r.w.es, r.w.dx);
 		break;
 	case INT33_SET_MOUSE_SPEED:
 		dlog_print("Mouse set speed x=");
-		dlog_printd(r.x.cx);
+		dlog_printd(r.w.cx);
 		dlog_print(" y=");
-		dlog_printd(r.x.dx);
+		dlog_printd(r.w.dx);
 		dlog_endline();
-		data.mickeysPerLine.x = r.x.cx;
-		data.mickeysPerLine.y = r.x.dx;
+		data.mickeysPerLine.x = r.w.cx;
+		data.mickeysPerLine.y = r.w.dx;
 		break;
 	case INT33_SET_SPEED_DOUBLE_THRESHOLD:
 		dlog_print("Mouse set speed double threshold=");
-		dlog_printd(r.x.dx);
+		dlog_printd(r.w.dx);
 		dlog_endline();
-		data.doubleSpeedThreshold = r.x.dx;
+		data.doubleSpeedThreshold = r.w.dx;
 		break;
 	case INT33_EXCHANGE_EVENT_HANDLER:
 		dlog_puts("Mouse exchange event handler");
-		data.event_mask = r.x.cx;
+		data.event_mask = r.w.cx;
 	    {
 		    void (__far *prev_event_handler)() = data.event_handler;
-			data.event_handler = MK_FP(r.x.es, r.x.dx);
-			r.x.es = FP_SEG(prev_event_handler);
-			r.x.dx = FP_OFF(prev_event_handler);
+			data.event_handler = MK_FP(r.w.es, r.w.dx);
+			r.w.es = FP_SEG(prev_event_handler);
+			r.w.dx = FP_OFF(prev_event_handler);
 	    }
 		break;
 	case INT33_GET_MOUSE_STATUS_SIZE:
 		dlog_puts("Mouse get status size");
-		r.x.bx = sizeof(TSRDATA);
+		r.w.bx = sizeof(TSRDATA);
 		break;
 	case INT33_SAVE_MOUSE_STATUS:
 		dlog_puts("Mouse save status");
-		_fmemcpy(MK_FP(r.x.es, r.x.dx), &data, sizeof(TSRDATA));
+		_fmemcpy(MK_FP(r.w.es, r.w.dx), &data, sizeof(TSRDATA));
 		break;
 	case INT33_LOAD_MOUSE_STATUS:
 		dlog_puts("Mouse load status");
-		_fmemcpy(&data, MK_FP(r.x.es, r.x.dx), sizeof(TSRDATA));
+		_fmemcpy(&data, MK_FP(r.w.es, r.w.dx), sizeof(TSRDATA));
 		break;
 	case INT33_SET_MOUSE_SENSITIVITY:
 		dlog_print("Mouse set sensitivity x=");
-		dlog_printd(r.x.bx);
+		dlog_printd(r.w.bx);
 		dlog_print(" y=");
-		dlog_printd(r.x.cx);
+		dlog_printd(r.w.cx);
 		dlog_print(" threshold=");
-		dlog_printd(r.x.dx);
+		dlog_printd(r.w.dx);
 		dlog_endline();
 		// TODO According to cutemouse, sensitivity != mickeysPerLine
-		data.mickeysPerLine.x = r.x.bx;
-		data.mickeysPerLine.y = r.x.cx;
-		data.doubleSpeedThreshold = r.x.dx;
+		data.mickeysPerLine.x = r.w.bx;
+		data.mickeysPerLine.y = r.w.cx;
+		data.doubleSpeedThreshold = r.w.dx;
 		break;
 	case INT33_GET_MOUSE_SENSITIVITY:
-		r.x.bx = data.mickeysPerLine.x;
-		r.x.cx = data.mickeysPerLine.y;
-		r.x.dx = data.doubleSpeedThreshold;
+		r.w.bx = data.mickeysPerLine.x;
+		r.w.cx = data.mickeysPerLine.y;
+		r.w.dx = data.doubleSpeedThreshold;
 		break;
 	case INT33_RESET_SETTINGS:
 		dlog_puts("Mouse reset settings");
 		reload_video_info();
 		reset_mouse_settings();
 		reset_mouse_state();
-		r.x.ax = INT33_MOUSE_FOUND;
-		r.x.bx = NUM_BUTTONS;
+		r.w.ax = INT33_MOUSE_FOUND;
+		r.w.bx = NUM_BUTTONS;
 		break;
 	case INT33_GET_LANGUAGE:
-		r.x.bx = 0;
+		r.w.bx = 0;
 		break;
 	case INT33_GET_DRIVER_INFO:
 		dlog_puts("Mouse get driver info");
@@ -1346,35 +1346,35 @@ static void int33_handler(union INTPACK r)
 		r.h.cl = 0;
 		break;
 	case INT33_GET_MAX_COORDINATES:
-		r.x.bx = 0;
-		r.x.cx = MAX(data.screen_max.x, data.max.x);
-		r.x.dx = MAX(data.screen_max.y, data.max.y);
+		r.w.bx = 0;
+		r.w.cx = MAX(data.screen_max.x, data.max.x);
+		r.w.dx = MAX(data.screen_max.y, data.max.y);
 		break;
 	case INT33_GET_WINDOW:
-		r.x.ax = data.min.x;
-		r.x.bx = data.min.y;
-		r.x.cx = data.max.x;
-		r.x.dx = data.max.y;
+		r.w.ax = data.min.x;
+		r.w.bx = data.min.y;
+		r.w.cx = data.max.x;
+		r.w.dx = data.max.y;
 		break;
 #if USE_WHEEL
 	// Wheel API extensions:
 	case INT33_GET_CAPABILITIES:
 		dlog_puts("Mouse get capabitilies");
-		r.x.ax = INT33_WHEEL_API_MAGIC; // Driver supports wheel API
-		r.x.bx = 0;
-		r.x.cx = data.haswheel ? INT33_CAPABILITY_MOUSE_API : 0;
+		r.w.ax = INT33_WHEEL_API_MAGIC; // Driver supports wheel API
+		r.w.bx = 0;
+		r.w.cx = data.haswheel ? INT33_CAPABILITY_MOUSE_API : 0;
 		data.usewheelapi = true; // Someone calling this function likely wants to use wheel API
 		break;
 #endif
 	// Our internal API extensions:
 	case INT33_GET_TSR_DATA:
 		dlog_puts("Get TSR data");
-		r.x.es = FP_SEG(&data);
-		r.x.di = FP_OFF(&data);
+		r.w.es = FP_SEG(&data);
+		r.w.di = FP_OFF(&data);
 		break;
 	default:
 		dlog_print("Unknown mouse function ax=");
-		dlog_printx(r.x.ax);
+		dlog_printx(r.w.ax);
 		dlog_endline();
 		break;
 	}
@@ -1457,13 +1457,13 @@ void __declspec(naked) __far windows_mouse_callback()
 static void int2f_handler(union INTPACK r)
 #pragma aux int2f_handler "*" parm caller [] modify [ax bx cx dx es]
 {
-	switch (r.x.ax) {
+	switch (r.w.ax) {
 	case INT2F_NOTIFY_WIN386_STARTUP:
 		dlog_print("Windows is starting, version=");
-		dlog_printx(r.x.di);
+		dlog_printx(r.w.di);
 		dlog_endline();
 		data.w386_startup.version = 3;
-		data.w386_startup.next = MK_FP(r.x.es, r.x.bx);
+		data.w386_startup.next = MK_FP(r.w.es, r.w.bx);
 		data.w386_startup.device_driver = 0;
 		data.w386_startup.device_driver_data = 0;
 		data.w386_startup.instance_data = &data.w386_instance;
@@ -1471,8 +1471,8 @@ static void int2f_handler(union INTPACK r)
 		data.w386_instance[0].size = sizeof(data);
 		data.w386_instance[1].ptr = 0;
 		data.w386_instance[1].size = 0;
-		r.x.es = FP_SEG(&data.w386_startup);
-		r.x.bx = FP_OFF(&data.w386_startup);
+		r.w.es = FP_SEG(&data.w386_startup);
+		r.w.bx = FP_OFF(&data.w386_startup);
 		data.haswin386 = true;
 		break;
 	case INT2F_NOTIFY_WIN386_SHUTDOWN:
@@ -1481,17 +1481,17 @@ static void int2f_handler(union INTPACK r)
 		data.w386cursor = false;
 		break;
 	case INT2F_NOTIFY_DEVICE_CALLOUT:
-		switch (r.x.bx) {
+		switch (r.w.bx) {
 		case VMD_DEVICE_ID:
-			switch (r.x.cx) {
+			switch (r.w.cx) {
 			case VMD_CALLOUT_TEST:
-				r.x.cx = 1; // Yes, we are here!
+				r.w.cx = 1; // Yes, we are here!
 				break;
 			case VMD_CALLOUT_GET_DOS_MOUSE_API:
 				// Windows is asking our mouse driver for the hook function address
-				r.x.ds = get_cs();
-				r.x.si = FP_OFF(windows_mouse_callback);
-				r.x.ax = 0; // Yes, we are here!
+				r.w.ds = get_cs();
+				r.w.si = FP_OFF(windows_mouse_callback);
+				r.w.ax = 0; // Yes, we are here!
 				break;
 			}
 			break;

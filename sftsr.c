@@ -66,10 +66,10 @@ static void map_shfl_info_to_dosdir(DOSDIR __far *dir, SHFLFSOBJINFO *i)
 
 static void map_shfl_info_to_getattr(union INTPACK __far *r, SHFLFSOBJINFO *i)
 {
-	r->x.ax = map_shfl_attr_to_dosattr(&i->Attr);
-	r->x.bx = ((uint32_t)i->cbObject) >> 16;
-	r->x.di = ((uint16_t)i->cbObject);
-	timestampns_to_dos_time(&r->x.cx, &r->x.dx, i->ModificationTime, data.tz_offset);
+	r->w.ax = map_shfl_attr_to_dosattr(&i->Attr);
+	r->w.bx = ((uint32_t)i->cbObject) >> 16;
+	r->w.di = ((uint16_t)i->cbObject);
+	timestampns_to_dos_time(&r->w.cx, &r->w.dx, i->ModificationTime, data.tz_offset);
 }
 
 static bool is_valid_dos_file(SHFLFSOBJINFO *i)
@@ -95,7 +95,7 @@ static int get_op_drive_num(union INTPACK __far *r)
 	case DOS_FN_UNLOCK:
 	case DOS_FN_SEEK_END:
 		// Some operations use an SFT and we directly get the drive from it
-		sft = MK_FP(r->x.es, r->x.di);
+		sft = MK_FP(r->w.es, r->w.di);
 		return sft->dev_info & 0x1F;
 
 	case DOS_FN_RMDIR:
@@ -139,7 +139,7 @@ static bool is_call_for_mounted_drive(union INTPACK __far *r)
 static void clear_dos_err(union INTPACK __far *r)
 {
 	dlog_puts("->ok");
-	r->x.flags &= ~INTR_CF;
+	r->w.flags &= ~INTR_CF;
 }
 
 static void set_dos_err(union INTPACK __far *r, int err)
@@ -147,8 +147,8 @@ static void set_dos_err(union INTPACK __far *r, int err)
 	dlog_print("->dos error ");
 	dlog_printd(err);
 	dlog_endline();
-	r->x.flags |= INTR_CF;
-	r->x.ax = err;
+	r->w.flags |= INTR_CF;
+	r->w.ax = err;
 }
 
 static int vbox_err_to_dos(vboxerr err)
@@ -345,7 +345,7 @@ static void handle_create_open_ex(union INTPACK __far *r)
 	const char __far *path = data.dossda->fn1;
 	int drive = drive_letter_to_index(path[0]);
 	SHFLROOT root = data.drives[drive].root;
-	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
+	DOSSFT __far *sft = MK_FP(r->w.es, r->w.di);
 	unsigned int action, mode;
 	unsigned openfile;
 	bool save_result;
@@ -438,13 +438,13 @@ static void handle_create_open_ex(union INTPACK __far *r)
 		set_dos_err(r, DOS_ERROR_FILE_NOT_FOUND);
 		return;
 	case SHFL_FILE_EXISTS:
-		if (save_result) r->x.cx = OPENEX_FILE_OPENED;
+		if (save_result) r->w.cx = OPENEX_FILE_OPENED;
 		break;
 	case SHFL_FILE_CREATED:
-		if (save_result) r->x.cx = OPENEX_FILE_CREATED;
+		if (save_result) r->w.cx = OPENEX_FILE_CREATED;
 		break;
 	case SHFL_FILE_REPLACED:
-		if (save_result) r->x.cx = OPENEX_FILE_REPLACED;
+		if (save_result) r->w.cx = OPENEX_FILE_REPLACED;
 		break;
 	}
 
@@ -468,7 +468,7 @@ static void handle_create_open_ex(union INTPACK __far *r)
 
 static void handle_close(union INTPACK __far *r)
 {
-	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
+	DOSSFT __far *sft = MK_FP(r->w.es, r->w.di);
 	unsigned openfile = get_sft_openfile_index(sft);
 	vboxerr err;
 
@@ -503,11 +503,11 @@ static void handle_close(union INTPACK __far *r)
 
 static void handle_read(union INTPACK __far *r)
 {
-	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
+	DOSSFT __far *sft = MK_FP(r->w.es, r->w.di);
 	unsigned openfile = get_sft_openfile_index(sft);
 	uint8_t __far *buffer = data.dossda->cur_dta;
 	unsigned long offset = sft->f_pos;
-	unsigned bytes = r->x.cx;
+	unsigned bytes = r->w.cx;
 	vboxerr err;
 
 	dlog_print("handle_read openfile=");
@@ -536,17 +536,17 @@ static void handle_read(union INTPACK __far *r)
 	// Advance the file position
 	sft->f_pos += bytes;
 
-	r->x.cx = bytes;
+	r->w.cx = bytes;
 	clear_dos_err(r);
 }
 
 static void handle_write(union INTPACK __far *r)
 {
-	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
+	DOSSFT __far *sft = MK_FP(r->w.es, r->w.di);
 	unsigned openfile = get_sft_openfile_index(sft);
 	uint8_t __far *buffer = data.dossda->cur_dta;
 	unsigned long offset = sft->f_pos;
-	unsigned bytes = r->x.cx;
+	unsigned bytes = r->w.cx;
 	vboxerr err;
 
 	dlog_print("handle_write openfile=");
@@ -578,19 +578,19 @@ static void handle_write(union INTPACK __far *r)
 	// Assume the file has grown if we've written past the end
 	if (sft->f_pos > sft->f_size) sft->f_size = sft->f_pos;
 
-	r->x.cx = bytes;
+	r->w.cx = bytes;
 	clear_dos_err(r);
 }
 
 static void handle_lock(union INTPACK __far *r)
 {
-	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
+	DOSSFT __far *sft = MK_FP(r->w.es, r->w.di);
 	unsigned openfile = get_sft_openfile_index(sft);
 	bool unlock = r->h.bl ? true : false;
-	unsigned numops = r->x.cx, i;
+	unsigned numops = r->w.cx, i;
 	unsigned flags = (unlock ? SHFL_LOCK_CANCEL : SHFL_LOCK_EXCLUSIVE)
 	        | SHFL_LOCK_WAIT | SHFL_LOCK_PARTIAL;
-	DOSLOCK __far *ops = MK_FP(r->x.ds, r->x.dx);
+	DOSLOCK __far *ops = MK_FP(r->w.ds, r->w.dx);
 	vboxerr err;
 
 	dlog_print("handle_lock ");
@@ -614,10 +614,10 @@ static void handle_lock(union INTPACK __far *r)
 
 static void handle_seek_end(union INTPACK __far *r)
 {
-	DOSSFT __far *sft = MK_FP(r->x.es, r->x.di);
+	DOSSFT __far *sft = MK_FP(r->w.es, r->w.di);
 	unsigned openfile = get_sft_openfile_index(sft);
 	uint8_t __far *buffer = data.dossda->cur_dta;
-	long offset = ((uint32_t)(r->x.cx) << 16) | (uint32_t)(r->x.dx);
+	long offset = ((uint32_t)(r->w.cx) << 16) | (uint32_t)(r->w.dx);
 	unsigned buf_size = sizeof(SHFLFSOBJINFO);
 	vboxerr err;
 
@@ -678,8 +678,8 @@ static void handle_seek_end(union INTPACK __far *r)
 	dlog_endline();
 
 	// Return new file position in dx:ax
-	r->x.dx = sft->f_pos >> 16;
-	r->x.ax = sft->f_pos ;
+	r->w.dx = sft->f_pos >> 16;
+	r->w.ax = sft->f_pos ;
 
 	clear_dos_err(r);
 }
@@ -808,7 +808,6 @@ static void handle_getattr(union INTPACK __far *r)
 	map_shfl_info_to_getattr(r, &parms.create.Info);
 	clear_dos_err(r);
 }
-
 
 static vboxerr open_search_dir(SHFLROOT root, const char __far *path)
 {
@@ -1209,9 +1208,9 @@ static void handle_get_disk_free(union INTPACK __far *r)
 
 	r->h.ah = 0; // media ID byte
 	r->h.al = SECTORS_PER_CLUSTER;
-	r->x.cx = BYTES_PER_SECTOR;
-	r->x.bx = disk_bytes_to_clusters(parms.volinfo.ullTotalAllocationBytes);
-	r->x.dx = disk_bytes_to_clusters(parms.volinfo.ullAvailableAllocationBytes);
+	r->w.cx = BYTES_PER_SECTOR;
+	r->w.bx = disk_bytes_to_clusters(parms.volinfo.ullTotalAllocationBytes);
+	r->w.dx = disk_bytes_to_clusters(parms.volinfo.ullAvailableAllocationBytes);
 
 	clear_dos_err(r);
 }
@@ -1220,13 +1219,13 @@ static bool int2f_11_handler(union INTPACK r)
 #pragma aux int2f_11_handler "*" parm caller [] value [al] modify [ax bx cx dx si di es gs fs]
 {
 	if (r.h.ah != 0x11) return false; // Only interested in network redirector functions
-	if (r.h.al == 0xff && r.x.bx == 0x5742 && r.x.cx == 0x5346) {
+	if (r.h.al == 0xff && r.w.bx == 0x5742 && r.w.cx == 0x5346) {
 		// These are the magic numbers to our private "Get TSR data" function
 		dlog_puts("Get TSR data");
-		r.x.es = get_ds();
-		r.x.di = FP_OFF(&data);
-		r.x.bx = 0x5444;
-		r.x.cx = 1;
+		r.w.es = get_ds();
+		r.w.di = FP_OFF(&data);
+		r.w.bx = 0x5444;
+		r.w.cx = 1;
 		return true;
 	}
 

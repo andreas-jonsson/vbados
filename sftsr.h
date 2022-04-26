@@ -26,6 +26,7 @@
 #include "vbox.h"
 #include "int21dos.h"
 
+/** Trace all int2F calls into dlog */
 #define TRACE_CALLS   0
 
 #define LASTDRIVE     'Z'

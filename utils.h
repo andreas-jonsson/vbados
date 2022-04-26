@@ -39,6 +39,9 @@ static inline __segment get_cs(void);
 static inline __segment get_ds(void);
 #pragma aux get_ds = "mov ax, ds" value [ax] modify exact [];
 
+static inline __segment get_ss(void);
+#pragma aux get_ss = "mov ax, ss" value [ax] modify exact [];
+
 /** Converts a far pointer into equivalent linear address.
  *  Note that under protected mode linear != physical (for that, need VDS). */
 static inline uint32_t linear_addr(const void __far * ptr)
