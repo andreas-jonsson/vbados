@@ -799,7 +799,7 @@ static void handle_getattr(union INTPACK __far *r)
 		set_dos_err(r, DOS_ERROR_PATH_NOT_FOUND);
 		return;
 	case SHFL_FILE_NOT_FOUND:
-		set_dos_err(r, DOS_ERROR_PATH_NOT_FOUND);
+		set_dos_err(r, DOS_ERROR_FILE_NOT_FOUND);
 		return;
 	default:
 		break;
