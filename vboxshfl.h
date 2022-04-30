@@ -294,6 +294,25 @@ static vboxerr vbox_shfl_lock(LPVBOXCOMM vb, hgcm_client_id_t client_id, SHFLROO
 	return req->header.result;
 }
 
+static vboxerr vbox_shfl_flush(LPVBOXCOMM vb, hgcm_client_id_t client_id, SHFLROOT root, SHFLHANDLE handle)
+{
+	VMMDevHGCMCall __far *req = (void __far *) vb->buf;
+	vboxerr err;
+
+	vbox_hgcm_init_call(req, client_id, SHFL_FN_FLUSH, 2);
+
+	// arg 0 in uint32 "root"
+	vbox_hgcm_set_parameter_shflroot(req, 0, root);
+
+	// arg 1 in uint64 "handle"
+	vbox_hgcm_set_parameter_shflhandle(req, 1, handle);
+
+	if ((err = vbox_hgcm_do_call_sync(vb, req)) < 0)
+		return err;
+
+	return req->header.result;
+}
+
 static vboxerr vbox_shfl_list(LPVBOXCOMM vb, hgcm_client_id_t client_id, SHFLROOT root, SHFLHANDLE handle,
                               unsigned flags, unsigned __far *size, const SHFLSTRING *path, SHFLDIRINFO *dirinfo, unsigned __far *resume, unsigned __far *count)
 {

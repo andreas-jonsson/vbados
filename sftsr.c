@@ -373,6 +373,7 @@ static inline void clear_sdb_openfile_index(DOSSDB __far *sdb)
 	sdb->dir_entry = INVALID_OPENFILE;
 }
 
+/** Closes an openfile entry by index, and marks it as free. */
 static vboxerr close_openfile(unsigned index)
 {
 	vboxerr err;
@@ -390,6 +391,42 @@ static vboxerr close_openfile(unsigned index)
 	data.files[index].handle = SHFL_HANDLE_NIL;
 
 	return err;
+}
+
+/** For an SFT corresponding to an openfile,
+ *  flushes any pending metadata changes.
+ *  Currently only time & date. */
+static void flush_sft_metadata(DOSSFT __far *sft)
+{
+	unsigned openfile = get_sft_openfile_index(sft);
+	vboxerr err;
+
+	if (sft->dev_info & DOS_SFT_FLAG_TIME_SET) {
+		unsigned buf_size = sizeof(SHFLFSOBJINFO);
+
+		dlog_puts("setting modified date/time");
+		dlog_print("time=");
+		dlog_printx(sft->f_time);
+		dlog_print("date=");
+		dlog_printx(sft->f_date);
+		dlog_endline();
+
+		memset(&parms.objinfo, 0, sizeof(SHFLFSOBJINFO));
+
+		timestampns_from_dos_time(&parms.objinfo.ModificationTime, sft->f_time, sft->f_date, data.tz_offset);
+
+		// Set the current file size
+		err = vbox_shfl_info(&data.vb, data.hgcm_client_id,
+		                     data.files[openfile].root, data.files[openfile].handle,
+		                     SHFL_INFO_SET | SHFL_INFO_FILE, &buf_size, &parms.objinfo);
+		if (err == 0) {
+			sft->dev_info &= ~DOS_SFT_FLAG_TIME_SET;
+			if (buf_size == sizeof(SHFLFSOBJINFO)) {
+				// VirtualBox returns updated information, let's use it
+				map_shfl_info_to_dossft(sft, &parms.objinfo);
+			}
+		}
+	}
 }
 
 static void handle_create_open_ex(union INTPACK __far *r)
@@ -540,6 +577,8 @@ static void handle_close(union INTPACK __far *r)
 		return;
 	}
 
+	flush_sft_metadata(sft);
+
 	dos_sft_decref(sft);
 	if (sft->num_handles == 0xFFFF) {
 		// SFT is no longer referenced, really close file and clean it up
@@ -634,7 +673,37 @@ static void handle_write(union INTPACK __far *r)
 	// Assume the file has grown if we've written past the end
 	if (sft->f_pos > sft->f_size) sft->f_size = sft->f_pos;
 
+	// Mark the SFT as dirty
+	sft->dev_info &= ~DOS_SFT_FLAG_CLEAN;
+
 	r->w.cx = bytes;
+	clear_dos_err(r);
+}
+
+static void handle_commit(union INTPACK __far *r)
+{
+	DOSSFT __far *sft = MK_FP(r->w.es, r->w.di);
+	unsigned openfile = get_sft_openfile_index(sft);
+	vboxerr err;
+
+	dlog_print("handle_commit openfile=");
+	dlog_printu(openfile);
+	dlog_endline();
+
+	if (!is_valid_openfile_index(openfile)) {
+		set_dos_err(r, DOS_ERROR_INVALID_HANDLE);
+		return;
+	}
+
+	flush_sft_metadata(sft);
+
+	err = vbox_shfl_flush(&data.vb, data.hgcm_client_id,
+	                      data.files[openfile].root, data.files[openfile].handle);
+	if (err) {
+		set_vbox_err(r, err);
+		return;
+	}
+
 	clear_dos_err(r);
 }
 
@@ -681,7 +750,7 @@ static void handle_seek_end(union INTPACK __far *r)
 	dlog_printd(offset);
 	dlog_endline();
 
-	memset(&parms.objinfo, buf_size, sizeof(SHFLFSOBJINFO));
+	memset(&parms.objinfo, 0, sizeof(SHFLFSOBJINFO));
 
 	// Get the current file size
 	err = vbox_shfl_info(&data.vb, data.hgcm_client_id,
@@ -853,6 +922,14 @@ static void handle_getattr(union INTPACK __far *r)
 
 	map_shfl_info_to_getattr(r, &parms.create.Info);
 	clear_dos_err(r);
+}
+
+static void handle_setattr(union INTPACK __far *r)
+{
+	// TODO: Completely ignoring setattr,
+	// since the only attribute we could try to set
+	// in a multiplatform way is READONLY.
+	set_dos_err(r, DOS_ERROR_INVALID_FUNCTION);
 }
 
 /** Opens directory corresponding to file in path (i.e. we use the dirname),
@@ -1356,6 +1433,9 @@ static bool int2f_11_handler(union INTPACK r)
 	case DOS_FN_WRITE:
 		handle_write(&r);
 		return true;
+	case DOS_FN_COMMIT:
+		handle_commit(&r);
+		return true;
 	case DOS_FN_LOCK:
 		handle_lock(&r);
 		return true;
@@ -1370,6 +1450,9 @@ static bool int2f_11_handler(union INTPACK r)
 		return true;
 	case DOS_FN_GET_FILE_ATTR:
 		handle_getattr(&r);
+		return true;
+	case DOS_FN_SET_FILE_ATTR:
+		handle_setattr(&r);
 		return true;
 	case DOS_FN_FIND_FIRST:
 		handle_find_first(&r);
