@@ -46,7 +46,7 @@ static uint8_t map_shfl_attr_to_dosattr(const SHFLFSOBJATTR *a)
 	uint8_t attr = (a->fMode >> 16) & 0x3F;
 	// Albeit also map the UNIX S_IFDIR attrib to DOS SUBDIR one,
 	// since at least on Linux hosts the DOS one may not be set
-	if (a->fMode & 0x4000U) attr |= _A_SUBDIR;
+	if ((a->fMode & 0xF000UL) == 0x4000UL) attr |= _A_SUBDIR;
 	return attr;
 }
 
@@ -885,10 +885,10 @@ static void handle_getattr(union INTPACK __far *r)
 
 static void handle_setattr(union INTPACK __far *r)
 {
-	// TODO: Completely ignoring setattr,
-	// since the only attribute we could try to set
-	// in a multiplatform way is READONLY.
-	set_dos_err(r, DOS_ERROR_INVALID_FUNCTION);
+	// TODO: Just silently ignoring setattr,
+	// since the only attribute we could try to set in a multiplatform way
+	// is A_RDONLY by messing with UNIX perms.
+	clear_dos_err(&r);
 }
 
 /** Opens directory corresponding to file in path (i.e. we use the dirname),
