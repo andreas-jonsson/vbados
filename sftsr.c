@@ -248,11 +248,19 @@ static void fix_wildcards(SHFLSTRING *str)
 	unsigned i;
 
 	// If this is the standard ????????.??? pattern, replace with *
+	// (and not *.*, since we want to accept files without extension).
 	if (str->u16Length >= 8+1+3) {
 		i = str->u16Length - (8+1+3);
 		if (memcmp(&str->ach[i], "????????.???", (8+1+3)) == 0) {
 			strcpy(&str->ach[i], "*");
 			str->u16Length = i + 1;
+		}
+	} else if (str->u16Length >= 1+3) {
+		// If this ends with .???, remove it, since we want to accept files
+		// without extension too.
+		i = str->u16Length - (1+3);
+		if (memcmp(&str->ach[i], ".???", (1+3)) == 0) {
+			str->u16Length = i;
 		}
 	}
 
@@ -321,6 +329,17 @@ static bool copy_to_8_3_filename(char __far *dst, const SHFLSTRING *str)
 static bool is_8_3_wildcard(const char __far *name)
 {
 	return _fmemchr(name, '?', 8+3) != NULL;
+}
+
+static bool matches_8_3_wildcard(const char __far *name, const char __far *mask)
+{
+	unsigned i;
+	for (i = 0; i < 8+3; i++) {
+		if (*mask != '?' && *name != *mask) return false;
+		name++; mask++;
+	}
+
+	return true;
 }
 
 static unsigned find_free_openfile()
@@ -1007,10 +1026,15 @@ static vboxerr find_volume_label(SHFLROOT root)
 }
 
 /** Gets and fills in the next directory entry from VirtualBox. */
-static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path, uint8_t search_attr)
+static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path)
 {
+	DOSSDB __far *sdb = &data.dossda->sdb;
 	DOSDIR __far *found_file = &data.dossda->found_file;
+	uint16_t search_mask;
 	vboxerr err;
+
+	// Always accept files with these attributes, even if mask says otherwise
+	search_mask = ~(sdb->search_attr | _A_ARCH | _A_RDONLY);
 
 	// It is important that at least for the first call we pass in
 	// a correct absolute mask with the correct wildcards;
@@ -1064,7 +1088,7 @@ static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path, ui
 		// we are searching for files that have no attribute bits set other
 		// than the ones in search_attr .
 		// Except for the ARCH and RDONLY attributes, which are always accepted.
-		if (found_file->attr & ~(search_attr | _A_ARCH | _A_RDONLY)) {
+		if (found_file->attr & search_mask) {
 			dlog_puts("hiding file with unwanted attrs");
 			continue; // Skip this one
 		}
@@ -1077,6 +1101,11 @@ static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path, ui
 
 		if (!copy_to_8_3_filename(found_file->filename, &shfldirinfo.dirinfo.name)) {
 			dlog_puts("hiding file with long filename");
+			continue;
+		}
+
+		if (!matches_8_3_wildcard(found_file->filename, sdb->search_templ)) {
+			dlog_puts("hiding file with unwanted filename");
 			continue;
 		}
 
@@ -1117,10 +1146,6 @@ static void handle_find_first(union INTPACK __far *r)
 	dlog_fnprint(search_mask, 8+3);
 	dlog_print(" attr=");
 	dlog_printx(search_attr);
-	dlog_endline();
-
-	dlog_print("existing openfile=");
-	dlog_printu(get_sdb_openfile_index(&data.dossda->sdb));
 	dlog_endline();
 
 	// Initialize the search data block; we'll use it on future calls
@@ -1165,7 +1190,7 @@ static void handle_find_first(union INTPACK __far *r)
 	// Remember it for future calls
 	set_sdb_openfile_index(&data.dossda->sdb, openfile);
 
-	err = find_next_from_vbox(openfile, path, search_attr);
+	err = find_next_from_vbox(openfile, path);
 	if (err) {
 		// If we are finished, or any other error, close the dir handle
 		close_openfile(openfile);
@@ -1208,7 +1233,6 @@ static void handle_find_first(union INTPACK __far *r)
 static void handle_find_next(union INTPACK __far *r)
 {
 	unsigned openfile = get_sdb_openfile_index(&data.dossda->sdb);
-	uint8_t search_attr = data.dossda->sdb.search_attr;
 	vboxerr err;
 
 	dlog_print("find_next openfile=");
@@ -1220,7 +1244,7 @@ static void handle_find_next(union INTPACK __far *r)
 		return;
 	}
 
-	err = find_next_from_vbox(openfile, NULL, search_attr);
+	err = find_next_from_vbox(openfile, NULL);
 	if (err) {
 		close_openfile(openfile);
 	    clear_sdb_openfile_index(&data.dossda->sdb);
