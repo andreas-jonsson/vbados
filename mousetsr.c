@@ -1331,6 +1331,10 @@ static void int33_handler(union INTPACK r)
 		dlog_puts("Mouse reset settings");
 		reload_video_info();
 		reset_mouse_settings();
+		if (!data.bios_packet_size || !data.packet_size) {
+			// Someone is calling this without calling reset first
+			reset_mouse_hardware();
+		}
 		reset_mouse_state();
 		r.w.ax = INT33_MOUSE_FOUND;
 		r.w.bx = NUM_BUTTONS;
