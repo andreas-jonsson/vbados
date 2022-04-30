@@ -32,7 +32,7 @@
 #define LASTDRIVE     'Z'
 #define NUM_DRIVES    ((LASTDRIVE - 'A') + 1)
 
-/** Maximum number of open files */
+/** Maximum number of open files and open directories (being enumerated). */
 #define NUM_FILES     60
 
 /** Parameters used for returning disk geometry.
@@ -51,6 +51,10 @@ typedef struct {
 	uint32_t root;
 	uint64_t handle;
 } OPENFILE;
+// TODO: Technically we could reduce the size of the above struct to save a bit of mem
+// In the current implementation the max handle virtualbox can give is < 4K,
+// but we still waste a full uint64_t to store a value that is always < 4K.
+// Similarly, at most 64 roots are supported, but we waste a uint32_t.
 
 typedef struct {
 	// TSR installation data

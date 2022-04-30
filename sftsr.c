@@ -377,7 +377,7 @@ static vboxerr close_openfile(unsigned index)
 {
 	vboxerr err;
 
-	dlog_print("close_openfile ");
+	dlog_print("close openfile=");
 	dlog_printu(index);
 	dlog_endline();
 
@@ -803,7 +803,6 @@ static void handle_rename(union INTPACK __far *r)
 	translate_filename_to_host(&shflstr.shflstr);
 
 	// Reusing shfldirinfo buffer space here for our second filename
-	// Hoping no one does concurrent find_next and rename
 	copy_drive_relative_filename(&shfldirinfo.dirinfo.name, dst);
 	translate_filename_to_host(&shfldirinfo.dirinfo.name);
 
@@ -1105,6 +1104,23 @@ static void handle_find_first(union INTPACK __far *r)
 	// and then never call FindNext.
 	// Detect this case and free the directory handle immediately.
 	if (!is_8_3_wildcard(search_mask)) {
+		close_openfile(openfile);
+		clear_sdb_openfile_index(&data.dossda->sdb);
+	}
+
+	// We will still leak the directory handle if the program stops calling
+	// FindNext before reaching the end of the directory, e.g. if it expects
+	// a specific file. But why would a program use a wildcard search just to
+	// check the existence of a particular file?
+	// Hopefully this is a rare situation and we don't leak too many fds.
+
+	// Naturally, Windows 3.x's Winfile does exactly what is described above.
+	// On mkdir, it will create a testdir.tmp file on the new directory,
+	// then proceed to findfirst "*.*" on it and expect the testdir.tmp file,
+	// never to call findnext again.
+	// Cue hack to avoid leaking one dirfd for each mkdir...
+	if (_fmemcmp(data.dossda->found_file.filename, "TESTDIR TMP", 8+3) == 0) {
+		dlog_puts("win3.x testdir detected");
 		close_openfile(openfile);
 		clear_sdb_openfile_index(&data.dossda->sdb);
 	}
