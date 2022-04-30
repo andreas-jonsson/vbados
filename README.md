@@ -520,7 +520,8 @@ It makes VKD set the mouse to "Intellimouse"/4-byte packet mode unconditionally 
 returns the wheel mouse device ID whenever asked, and removes all the packet segmentation code.
 Meaning overflow conditions may not be handled gracefully, dropping bytes randomly,
 so the DOS driver may need some synchronization code itself.
-However the code was [not that functional to begin with](http://www.os2museum.com/wp/jumpy-ps2-mouse-in-enhanced-mode-windows-3-x/),
+However the code was
+[not that functional to begin with](http://www.os2museum.com/wp/jumpy-ps2-mouse-in-enhanced-mode-windows-3-x/),
 so not much of value is lost.
 The 4-byte packets is what breaks most other drivers, but when using vbmouse.exe+vbmouse.drv,
 this shouldn't be a problem either.
@@ -530,6 +531,17 @@ this shouldn't be a problem either.
 * The VirtualBox BIOS can crash on warm-boot (e.g. Ctrl+Alt+Del) if the mouse
   was in the middle of sending a packet. A VM reboot fixes it.
   We probably need to hook Ctrl+Alt+Del and turn off the mouse.
+
+* DOS has functions to start (FindFirst) and continue (FindNext) a directory
+  entry iteration, but no function to stop or cancel one (i.e., FindClose).
+  So we don't know when the program is done with the directory enumeration,
+  and thus we don't know when to close the directory handle (and file descriptor).  
+  There are a number of heuristics, e.g. we close the directory when we iterate
+  over the last file. But it is not enough; for example, whenever a DOS client
+  calls FindFirst but doesn't enumerate the directory until the end, we'll leak
+  the file descriptor. Some programs do this in order to check if the directory
+  is not empty. Eventually you'll reach a "Too many open files" error.
+  Closing the DOS program should remove all leaked handles.
 
 * VMware shared folders support is interesting, but there is very little 
   documentation that I can find, no sample code, and no open source implementation.  

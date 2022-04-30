@@ -1043,6 +1043,15 @@ static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path)
 		copy_drive_relative_filename(&shflstr.shflstr, path);
 		translate_filename_to_host(&shflstr.shflstr);
 		fix_wildcards(&shflstr.shflstr);
+
+		dlog_print("fixed path=");
+		dlog_print(shflstr.buf);
+		dlog_endline();
+
+		if (shflstr.shflstr.ach[shflstr.shflstr.u16Length-1] == '\\') {
+			// No wildcard?
+			return VERR_NO_MORE_FILES;
+		}
 	} else {
 		// For find next calls, it's not really important what we pass here,
 		// as long as it's not empty.
