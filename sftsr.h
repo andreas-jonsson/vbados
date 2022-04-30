@@ -30,11 +30,10 @@
 #define TRACE_CALLS   0
 
 #define LASTDRIVE     'Z'
-#define MAX_NUM_DRIVE (LASTDRIVE - 'A')
-#define NUM_DRIVES    (MAX_NUM_DRIVE + 1)
+#define NUM_DRIVES    ((LASTDRIVE - 'A') + 1)
 
 /** Maximum number of open files */
-#define NUM_FILES     40
+#define NUM_FILES     60
 
 /** Parameters used for returning disk geometry.
  *  For compatibility, better if sector_per_cluster * bytes_per_sector <= 32K. */
@@ -42,12 +41,11 @@
 #define BYTES_PER_SECTOR         4096
 #define BYTES_PER_CLUSTER        (SECTORS_PER_CLUSTER * BYTES_PER_SECTOR)
 
-/** Directory enumeration needs an open file, this is its index in the "openfile" table. */
-#define SEARCH_DIR_FILE 0
-
 /** Size of the VBox buffer. The maximum message length that may be sent.
  *  Enough to fit an HGCM connect call, which is actually larger than most other calls we use ( <= 7 args ).  */
 #define VBOX_BUFFER_SIZE (200)
+
+#define INVALID_OPENFILE (-1)
 
 typedef struct {
 	uint32_t root;
@@ -73,8 +71,7 @@ typedef struct {
 		uint32_t root;
 	} drives[NUM_DRIVES];
 
-	/** All currently open files.
-	 *  index 0 is reserved for the file opened during directory enumeration. */
+	/** All currently open files. */
 	OPENFILE files[NUM_FILES];
 
 	// VirtualBox communication

@@ -183,7 +183,7 @@ static int mount(LPTSRDATA data, const char *folder, char drive_letter)
 		return EXIT_FAILURE;
 	}
 
-	if (drive >= lol->last_drive || drive >= MAX_NUM_DRIVE) {
+	if (drive >= lol->last_drive || drive >= NUM_DRIVES) {
 		fprintf(stderr, "Drive %c: is after LASTDRIVE\n", drive_letter);
 		return EXIT_FAILURE;
 	}
@@ -225,7 +225,7 @@ static int unmount(LPTSRDATA data, char drive_letter)
 		return EXIT_FAILURE;
 	}
 
-	if (drive >= lol->last_drive || drive >= MAX_NUM_DRIVE) {
+	if (drive >= lol->last_drive || drive >= NUM_DRIVES) {
 		fprintf(stderr, "Drive %c: is after LASTDRIVE\n", drive_letter);
 		return EXIT_FAILURE;
 	}

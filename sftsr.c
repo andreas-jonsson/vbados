@@ -31,6 +31,7 @@ TSRDATA data;
 /** Private buffer for VirtualBox filenames. */
 static SHFLSTRING_WITH_BUF(shflstr, SHFL_MAX_LEN);
 
+/** Private buffer where we store VirtualBox-obtained dir entries. */
 static SHFLDIRINFO_WITH_NAME_BUF(shfldirinfo, SHFL_MAX_LEN);
 
 static union {
@@ -82,6 +83,7 @@ static bool is_valid_dos_file(SHFLFSOBJINFO *i)
 	return true;
 }
 
+/** Try to guess which drive the requested operation is for. */
 static int get_op_drive_num(union INTPACK __far *r)
 {
 	DOSSFT __far *sft;
@@ -96,7 +98,7 @@ static int get_op_drive_num(union INTPACK __far *r)
 	case DOS_FN_SEEK_END:
 		// Some operations use an SFT and we directly get the drive from it
 		sft = MK_FP(r->w.es, r->w.di);
-		return sft->dev_info & 0x1F;
+		return sft->dev_info & DOS_SFT_DRIVE_MASK;
 
 	case DOS_FN_RMDIR:
 	case DOS_FN_MKDIR:
@@ -117,7 +119,8 @@ static int get_op_drive_num(union INTPACK __far *r)
 		return drive_letter_to_index(data.dossda->drive_cds->curr_path[0]);
 
 	case DOS_FN_FIND_NEXT:
-		return data.dossda->sdb.drive_letter & 0x1F;
+		// For find next, we stored the drive inside the SDB during find first.
+		return data.dossda->sdb.drive & DOS_SDB_DRIVE_MASK;
 
 	default:
 		// We don't support this operation
@@ -129,7 +132,7 @@ static bool is_call_for_mounted_drive(union INTPACK __far *r)
 {
 	int drive = get_op_drive_num(r);
 
-	if (drive < 0 || drive >= MAX_NUM_DRIVE) {
+	if (drive < 0 || drive >= NUM_DRIVES) {
 		return false;
 	}
 
@@ -238,11 +241,13 @@ static void translate_filename_from_host(SHFLSTRING *str)
 	}
 }
 
+/** Tries to do some very simple heuristics to convert DOS-style wildcards
+ *  into win32-like (as expected by VirtualBox). */
 static void fix_wildcards(SHFLSTRING *str)
 {
 	unsigned i;
 
-	// If this is the standard ????????.??? patterns, replace with *
+	// If this is the standard ????????.??? pattern, replace with *
 	if (str->u16Length >= 8+1+3) {
 		i = str->u16Length - (8+1+3);
 		if (memcmp(&str->ach[i], "????????.???", (8+1+3)) == 0) {
@@ -252,8 +257,10 @@ static void fix_wildcards(SHFLSTRING *str)
 	}
 
 	for (i = 1; i < str->u16Length; i++) {
-		// VirtualBox will only match N consecutive ?s to filenames longer than N
-		// Replace consecutive ???? with ?***
+		// VirtualBox will only match N consecutive ?s to filenames longer than N,
+		// while DOS doesn't care.
+		// Replace consecutive ???? with ?***,
+		// VirtualBox will merge consecutive *s so we don't have to.
 		if ( str->ach[i] == '?' &&
 		     (str->ach[i-1] == '*' || str->ach[i-1] == '?') ) {
 			str->ach[i] = '*';
@@ -311,25 +318,31 @@ static bool copy_to_8_3_filename(char __far *dst, const SHFLSTRING *str)
 	return valid_8_3;
 }
 
-static uint16_t find_free_openfile()
+static bool is_8_3_wildcard(const char __far *name)
+{
+	return _fmemchr(name, '?', 8+3) != NULL;
+}
+
+static unsigned find_free_openfile()
 {
 	unsigned i;
-	for (i = 1; i < NUM_FILES; i++) {
+	for (i = 0; i < NUM_FILES; i++) {
 		if (data.files[i].root == SHFL_ROOT_NIL) {
 			return i;
 		}
 	}
-	return 0;
+	return INVALID_OPENFILE;
 }
 
 static bool is_valid_openfile_index(unsigned index)
 {
-	if (index > NUM_FILES) return false;
-	if (index < 1) return false; // User programs cannot use index 0
-	if (data.files[index].root == SHFL_ROOT_NIL) return 0;
+	if (index == INVALID_OPENFILE || index > NUM_FILES) return false;
+	if (data.files[index].root == SHFL_ROOT_NIL) return false;
 	return true;
 }
 
+/** Stores the index of an openfile inside the SFT struct,
+  * in case we want to change the format in the future. */
 static inline void set_sft_openfile_index(DOSSFT __far *sft, unsigned index)
 {
 	sft->start_cluster = index;
@@ -338,6 +351,45 @@ static inline void set_sft_openfile_index(DOSSFT __far *sft, unsigned index)
 static inline unsigned get_sft_openfile_index(DOSSFT __far *sft)
 {
 	return sft->start_cluster;
+}
+
+static inline void clear_sft_openfile_index(DOSSFT __far *sft)
+{
+	sft->start_cluster = INVALID_OPENFILE;
+}
+
+static inline void set_sdb_openfile_index(DOSSDB __far *sdb, unsigned index)
+{
+	sdb->dir_entry = index;
+}
+
+static inline unsigned get_sdb_openfile_index(DOSSDB __far *sdb)
+{
+	return sdb->dir_entry;
+}
+
+static inline void clear_sdb_openfile_index(DOSSDB __far *sdb)
+{
+	sdb->dir_entry = INVALID_OPENFILE;
+}
+
+static vboxerr close_openfile(unsigned index)
+{
+	vboxerr err;
+
+	dlog_print("close_openfile ");
+	dlog_printu(index);
+	dlog_endline();
+
+	err = vbox_shfl_close(&data.vb, data.hgcm_client_id,
+	                      data.files[index].root, data.files[index].handle);
+
+	// Even if we have an error on close,
+	// assume the file is lost and leak the handle
+	data.files[index].root = SHFL_ROOT_NIL;
+	data.files[index].handle = SHFL_HANDLE_NIL;
+
+	return err;
 }
 
 static void handle_create_open_ex(union INTPACK __far *r)
@@ -379,7 +431,7 @@ static void handle_create_open_ex(union INTPACK __far *r)
 	dlog_endline();
 
 	openfile = find_free_openfile();
-	if (!openfile) {
+	if (openfile == INVALID_OPENFILE) {
 		set_dos_err(r, DOS_ERROR_TOO_MANY_OPEN_FILES);
 		return;
 	}
@@ -407,6 +459,14 @@ static void handle_create_open_ex(union INTPACK __far *r)
 		parms.create.CreateFlags |= SHFL_CF_ACCESS_WRITE;
 	} else {
 		parms.create.CreateFlags |= SHFL_CF_ACCESS_READ;
+	}
+
+	if ((mode & OPENEX_SHARE_MASK) == OPENEX_SHARE_DENYALL) {
+		parms.create.CreateFlags |= SHFL_CF_ACCESS_DENYALL;
+	} else if ((mode & OPENEX_SHARE_MASK) == OPENEX_SHARE_DENYWRITE) {
+		parms.create.CreateFlags |= SHFL_CF_ACCESS_DENYWRITE;
+	} else if ((mode & OPENEX_SHARE_MASK) == OPENEX_SHARE_DENYREAD) {
+		parms.create.CreateFlags |= SHFL_CF_ACCESS_DENYREAD;
 	}
 
 	if (!(parms.create.CreateFlags & SHFL_CF_ACCESS_WRITE)) {
@@ -459,7 +519,7 @@ static void handle_create_open_ex(union INTPACK __far *r)
 	// Fill in the SFT
 	map_shfl_info_to_dossft(sft, &parms.create.Info);
 	sft->open_mode = mode;
-	sft->dev_info = 0x8040 | drive; // "Network drive, unwritten to"
+	sft->dev_info = DOS_SFT_FLAG_NETWORK | DOS_SFT_FLAG_CLEAN | drive;
 	sft->f_pos = 0;
 	set_sft_openfile_index(sft, openfile);
 
@@ -470,7 +530,6 @@ static void handle_close(union INTPACK __far *r)
 {
 	DOSSFT __far *sft = MK_FP(r->w.es, r->w.di);
 	unsigned openfile = get_sft_openfile_index(sft);
-	vboxerr err;
 
 	dlog_print("handle_close openfile=");
 	dlog_printu(openfile);
@@ -481,22 +540,19 @@ static void handle_close(union INTPACK __far *r)
 		return;
 	}
 
-	err = vbox_shfl_close(&data.vb, data.hgcm_client_id,
-	                      data.files[openfile].root, data.files[openfile].handle);
-	if (err) {
-		set_vbox_err(r, err);
-		return;
-	}
-
 	dos_sft_decref(sft);
 	if (sft->num_handles == 0xFFFF) {
-		// SFT is no longer referenced, clear it up
-		set_sft_openfile_index(sft, 0);
+		// SFT is no longer referenced, really close file and clean it up
+		vboxerr err = close_openfile(openfile);
+		clear_sft_openfile_index(sft);
 		sft->num_handles = 0;
-	}
 
-	data.files[openfile].root = SHFL_ROOT_NIL;
-	data.files[openfile].handle = SHFL_HANDLE_NIL;
+		// Pass any error back to DOS, even though we always close the file
+		if (err) {
+			set_vbox_err(r, err);
+			return;
+		}
+	}
 
 	clear_dos_err(r);
 }
@@ -686,22 +742,13 @@ static void handle_seek_end(union INTPACK __far *r)
 
 static void handle_close_all(union INTPACK __far *r)
 {
-	vboxerr err;
 	unsigned i;
 
 	dlog_puts("handle_close_all");
 
 	for (i = 0; i < NUM_FILES; ++i) {
 		if (data.files[i].root != SHFL_ROOT_NIL) {
-			err = vbox_shfl_close(&data.vb, data.hgcm_client_id,
-			                      data.files[i].root, data.files[i].handle);
-			if (err) {
-				dlog_puts("vbox error on close all...");
-				// We'll leak this handle...
-			}
-
-			data.files[i].root = SHFL_ROOT_NIL;
-			data.files[i].handle = SHFL_HANDLE_NIL;
+			close_openfile(i);
 		}
 	}
 
@@ -809,11 +856,17 @@ static void handle_getattr(union INTPACK __far *r)
 	clear_dos_err(r);
 }
 
-static vboxerr open_search_dir(SHFLROOT root, const char __far *path)
+/** Opens directory corresponding to file in path (i.e. we use the dirname),
+ *  filling corresponding openfile entry. */
+static vboxerr open_search_dir(unsigned openfile, SHFLROOT root, const char __far *path)
 {
 	vboxerr err;
 
-	dlog_puts("open_search_dir");
+	dlog_print("open_search_dir openfile=");
+	dlog_printu(openfile);
+	dlog_print(" path=");
+	dlog_fprint(path);
+	dlog_endline();
 
 	copy_drive_relative_dirname(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
@@ -844,35 +897,10 @@ static vboxerr open_search_dir(SHFLROOT root, const char __far *path)
 		return VERR_INVALID_HANDLE;
 	}
 
-	data.files[SEARCH_DIR_FILE].root = root;
-	data.files[SEARCH_DIR_FILE].handle = parms.create.Handle;
+	data.files[openfile].root = root;
+	data.files[openfile].handle = parms.create.Handle;
 
 	return 0;
-}
-
-static void close_search_dir()
-{
-	vboxerr err;
-
-	if (data.files[SEARCH_DIR_FILE].root == SHFL_ROOT_NIL) {
-		// Already closed
-		return;
-	}
-
-	err = vbox_shfl_close(&data.vb, data.hgcm_client_id,
-	                      data.files[SEARCH_DIR_FILE].root,
-	                      data.files[SEARCH_DIR_FILE].handle);
-	if (err) {
-		dlog_puts("vbox error on close_search_dir, ignoring");
-	}
-
-	data.files[SEARCH_DIR_FILE].root = SHFL_ROOT_NIL;
-	data.files[SEARCH_DIR_FILE].handle = SHFL_HANDLE_NIL;
-}
-
-static inline bool is_search_dir_open()
-{
-	return data.files[SEARCH_DIR_FILE].root != SHFL_ROOT_NIL;
 }
 
 /** Simulates a directory entry with the current volume label. */
@@ -903,22 +931,29 @@ static vboxerr find_volume_label(SHFLROOT root)
 }
 
 /** Gets and fills in the next directory entry from VirtualBox. */
-static vboxerr find_next_from_vbox(uint8_t search_attr)
+static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path, uint8_t search_attr)
 {
 	DOSDIR __far *found_file = &data.dossda->found_file;
 	vboxerr err;
 
-	if (!is_search_dir_open()) {
-		dlog_puts("find_next called, but no opendir handle");
-		return VERR_INVALID_HANDLE;
+	// It is important that at least for the first call we pass in
+	// a correct absolute mask with the correct wildcards;
+	// this is what VirtualBox will use in future calls.
+	if (path) {
+		copy_drive_relative_filename(&shflstr.shflstr, path);
+		translate_filename_to_host(&shflstr.shflstr);
+		fix_wildcards(&shflstr.shflstr);
+	} else {
+		// For find next calls, it's not really important what we pass here,
+		// as long as it's not empty.
+		shflstring_strcpy(&shflstr.shflstr, " ");
 	}
 
 	while (1) { // Loop until we have a valid file (or an error)
 		unsigned size = sizeof(shfldirinfo), resume = 0, count = 0;
-		dlog_puts("calling vbox list");
 
 		err = vbox_shfl_list(&data.vb, data.hgcm_client_id,
-		                     data.files[SEARCH_DIR_FILE].root, data.files[SEARCH_DIR_FILE].handle,
+		                     data.files[openfile].root, data.files[openfile].handle,
 		                     SHFL_LIST_RETURN_ONE, &size, &shflstr.shflstr, &shfldirinfo.dirinfo,
 		                     &resume, &count);
 
@@ -952,7 +987,8 @@ static vboxerr find_next_from_vbox(uint8_t search_attr)
 		// See if this file has the right attributes,
 		// we are searching for files that have no attribute bits set other
 		// than the ones in search_attr .
-		if (found_file->attr & ~search_attr) {
+		// Except for the ARCH and RDONLY attributes, which are always accepted.
+		if (found_file->attr & ~(search_attr | _A_ARCH | _A_RDONLY)) {
 			dlog_puts("hiding file with unwanted attrs");
 			continue; // Skip this one
 		}
@@ -972,83 +1008,6 @@ static vboxerr find_next_from_vbox(uint8_t search_attr)
 		break;
 	};
 
-	return 0;
-}
-
-static void handle_find(union INTPACK __far *r)
-{
-	const char __far *path = data.dossda->fn1;
-	const char __far *search_mask = data.dossda->fcb_fn1;
-	int drive = drive_letter_to_index(path[0]);
-	SHFLROOT root = data.drives[drive].root;
-	DOSDIR __far *found_file = &data.dossda->found_file;
-	uint8_t search_attr;
-	vboxerr err;
-
-	if (r->h.al == DOS_FN_FIND_FIRST) {
-		search_attr = data.dossda->search_attr;
-
-		dlog_print("find_first path=");
-		dlog_fprint(path);
-		dlog_print(" mask=");
-		dlog_fnprint(search_mask, 8+3);
-		dlog_print(" attr=");
-		dlog_printx(search_attr);
-		dlog_endline();
-
-		close_search_dir();
-		err = open_search_dir(root, path);
-		if (err) {
-			set_vbox_err(r, err);
-			return;
-		}
-
-		copy_drive_relative_filename(&shflstr.shflstr, path);
-		translate_filename_to_host(&shflstr.shflstr);
-		fix_wildcards(&shflstr.shflstr);
-
-		// It is important that we initialize DOS' search structure
-		// or DOS may decide never to call us again
-		data.dossda->sdb.drive_letter = 0x80 | drive;
-		data.dossda->sdb.search_attr = search_attr;
-		_fmemcpy(data.dossda->sdb.search_templ, search_mask, 8+3);
-		data.dossda->sdb.dir_entry = 0;
-		data.dossda->sdb.par_clstr = 0;
-
-		if (search_attr & _A_VOLID) {
-			// Simulate an initial entry with the volume label
-			// if we are searching for it.
-			// DOS actually expects to always find it first.
-			dlog_puts("search volid");
-			err = find_volume_label(root);
-			if (err) {
-				dlog_puts("search volid err");
-				set_vbox_err(r, err);
-				return;
-			}
-			dlog_puts("search volid OK");
-			clear_dos_err(r);
-			return;
-		}
-	} else {
-		search_attr = data.dossda->sdb.search_attr;
-
-		dlog_print("find_next");
-		dlog_print(" attr=");
-		dlog_printx(search_attr);
-		dlog_endline();
-	}
-
-	err = find_next_from_vbox(search_attr);
-	if (err) {
-		if (err == VERR_NO_MORE_FILES) {
-			dlog_puts("no more files");
-		}
-		close_search_dir();
-		set_vbox_err(r, err);
-		return;
-	}
-
 	dlog_print("accepted file name='");
 	dlog_fnprint(&found_file->filename[0], 8);
 	dlog_putc(' ');
@@ -1056,6 +1015,125 @@ static void handle_find(union INTPACK __far *r)
 	dlog_print("' attr=");
 	dlog_printx(found_file->attr);
 	dlog_endline();
+
+	return 0;
+}
+
+/** Find first file.
+ *  Searches in drive/path indicated by fn1,
+ *  using the search mask (wildcard) in fcb_fn1.
+ *  Should use dossda.sdb to store our internal data,
+ *  since programs expect to swap this structure to pause/continue searches.
+ *  Return the results in dossda.found_file (see find_next). */
+static void handle_find_first(union INTPACK __far *r)
+{
+	const char __far *path = data.dossda->fn1;
+	const char __far *search_mask = data.dossda->fcb_fn1;
+	int drive = drive_letter_to_index(path[0]);
+	SHFLROOT root = data.drives[drive].root;
+	uint8_t search_attr = data.dossda->search_attr;
+	unsigned openfile;
+	vboxerr err;
+
+	dlog_print("find_first path=");
+	dlog_fprint(path);
+	dlog_print(" mask=");
+	dlog_fnprint(search_mask, 8+3);
+	dlog_print(" attr=");
+	dlog_printx(search_attr);
+	dlog_endline();
+
+	dlog_print("existing openfile=");
+	dlog_printu(get_sdb_openfile_index(&data.dossda->sdb));
+	dlog_endline();
+
+	// Initialize the search data block; we'll use it on future calls
+	// Even DOS seems to look and check that we did initialize it;
+	// it may never call us again if we don't e.g. copy the search mask.
+	data.dossda->sdb.drive = DOS_SDB_DRIVE_FLAG_NETWORK | drive;
+	data.dossda->sdb.search_attr = search_attr;
+	_fmemcpy(data.dossda->sdb.search_templ, search_mask, 8+3);
+	data.dossda->sdb.dir_entry = 0;
+	data.dossda->sdb.par_clstr = 0;
+
+	// Special case: the search for volume label
+	if (search_attr == _A_VOLID) {
+		// Simulate an initial entry with the volume label
+		// if we are searching for it.
+		// DOS actually expects to always find it first, and nothing else.
+		dlog_puts("search volid");
+		err = find_volume_label(root);
+		if (err) {
+			dlog_puts("search volid err");
+			set_vbox_err(r, err);
+			return;
+		}
+		dlog_puts("search volid OK");
+		clear_dos_err(r);
+		return;
+	}
+
+	// First, open the desired directory for searching
+	openfile = find_free_openfile();
+	if (openfile == INVALID_OPENFILE) {
+		set_dos_err(r, DOS_ERROR_TOO_MANY_OPEN_FILES);
+		return;
+	}
+
+	err = open_search_dir(openfile, root, path);
+	if (err) {
+		set_vbox_err(r, err);
+		return;
+	}
+
+	// Remember it for future calls
+	set_sdb_openfile_index(&data.dossda->sdb, openfile);
+
+	err = find_next_from_vbox(openfile, path, search_attr);
+	if (err) {
+		// If we are finished, or any other error, close the dir handle
+		close_openfile(openfile);
+	    clear_sdb_openfile_index(&data.dossda->sdb);
+		set_vbox_err(r, err);
+		return;
+	}
+
+	// Normally we expect the user to repeteadly call FindNext until the last file
+	// is returned, so that we can close the directory handle/openfile.
+	// However, some programs will call FindFirst to check if a file exists.
+	// In this case they pass a full path without any wildcards,
+	// and then never call FindNext.
+	// Detect this case and free the directory handle immediately.
+	if (!is_8_3_wildcard(search_mask)) {
+		close_openfile(openfile);
+		clear_sdb_openfile_index(&data.dossda->sdb);
+	}
+
+	clear_dos_err(r);
+}
+
+static void handle_find_next(union INTPACK __far *r)
+{
+	unsigned openfile = get_sdb_openfile_index(&data.dossda->sdb);
+	uint8_t search_attr = data.dossda->sdb.search_attr;
+	vboxerr err;
+
+	dlog_print("find_next openfile=");
+	dlog_printu(openfile);
+	dlog_endline();
+
+	if (!is_valid_openfile_index(openfile)) {
+		set_dos_err(r, DOS_ERROR_NO_MORE_FILES);
+		return;
+	}
+
+	err = find_next_from_vbox(openfile, NULL, search_attr);
+	if (err) {
+		close_openfile(openfile);
+	    clear_sdb_openfile_index(&data.dossda->sdb);
+		set_vbox_err(r, err);
+		return;
+	}
 
 	clear_dos_err(r);
 }
@@ -1278,8 +1356,10 @@ static bool int2f_11_handler(union INTPACK r)
 		handle_getattr(&r);
 		return true;
 	case DOS_FN_FIND_FIRST:
+		handle_find_first(&r);
+		return true;
 	case DOS_FN_FIND_NEXT:
-		handle_find(&r);
+		handle_find_next(&r);
 		return true;
 	case DOS_FN_CHDIR:
 		handle_chdir(&r);

@@ -202,8 +202,15 @@ typedef _Packed struct dos_system_file_table_entry {
 } DOSSFT;
 STATIC_ASSERT(sizeof(DOSSFT) == 43);
 
+enum dos_sft_dev_flags {
+	DOS_SFT_FLAG_NETWORK  = 0x8000,
+	DOS_SFT_FLAG_TIME_SET = 0x4000,
+	DOS_SFT_FLAG_CLEAN    = 0x0040,
+	DOS_SFT_DRIVE_MASK    = 0x001F
+};
+
 typedef _Packed struct dos_search_data_block {
-	char drive_letter;
+	uint8_t drive;
 	char search_templ[11];
 	uint8_t search_attr;
 	uint16_t dir_entry;
@@ -211,6 +218,11 @@ typedef _Packed struct dos_search_data_block {
 	char pad1[4];
 } DOSSDB;
 STATIC_ASSERT(sizeof(DOSSDB) == 21);
+
+enum dos_sdb_drive_flags {
+	DOS_SDB_DRIVE_FLAG_NETWORK = 0x80,
+	DOS_SDB_DRIVE_MASK         = 0x1F
+};
 
 typedef _Packed struct dos_lock_params {
 	uint32_t start_offset;
@@ -362,9 +374,16 @@ enum OPENEX_ACTIONS {
 };
 
 enum OPENEX_MODE {
-	OPENEX_MODE_READ   = 0,
-	OPENEX_MODE_WRITE  = 1,
-	OPENEX_MODE_RDWR   = 2
+	OPENEX_MODE_READ       = 0,
+	OPENEX_MODE_WRITE      = 1,
+	OPENEX_MODE_RDWR       = 2,
+	OPENEX_MODE_MASK       = 3,
+	OPENEX_SHARE_COMPAT    = 0x00,
+	OPENEX_SHARE_DENYALL   = 0x10,
+	OPENEX_SHARE_DENYWRITE = 0x20,
+	OPENEX_SHARE_DENYREAD  = 0x30,
+	OPENEX_SHARE_DENYNONE  = 0x40,
+	OPENEX_SHARE_MASK      = 0x70,
 };
 
 enum OPENEX_RESULT {
