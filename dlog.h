@@ -21,6 +21,9 @@
 #define DLOG_H
 
 #include <conio.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <limits.h>
 
 // Customizable defines
 /** If 0, these routines become nops */
@@ -40,7 +43,7 @@
 static void dlog_init();
 
 /** Logs a single character to the debug message IO port. */
-static inline void dlog_putc(char c);
+static inline void dputc(char c);
 
 #if DLOG_TARGET_SERIAL
 
@@ -56,7 +59,7 @@ static void dlog_init()
 	outp(DLOG_TARGET_PORT + 4, 0x03);    // RTS/DSR set, IRQs disabled
 }
 
-static inline void dlog_putc(char c)
+static inline void dputc(char c)
 {
 	while (!(inp(DLOG_TARGET_PORT + 5) & 0x20));
 	outp(DLOG_TARGET_PORT, c);
@@ -64,64 +67,25 @@ static inline void dlog_putc(char c)
 
 #else /* DLOG_TARGET_SERIAL */
 
-static void dlog_init()
+static inline void dlog_init()
 {
+	// No initialization required
 }
 
-static inline void dlog_putc(char c)
+static inline void dputc(char c)
 {
 	outp(DLOG_TARGET_PORT, c);
 }
 
 #endif /* DLOG_TARGET_SERIAL */
 
-static void dlog_endline(void)
+static void d_utoa(unsigned num, unsigned base)
 {
-	dlog_putc('\n');
-}
-
-/** Print string to log */
-static void dlog_print(const char *s)
-{
-	char c;
-	while (c = *s++) {
-		dlog_putc(c);
-	}
-}
-
-/** Print (far) string to log */
-static void dlog_fprint(const char __far *s)
-{
-	char c;
-	while (c = *s++) {
-		dlog_putc(c);
-	}
-}
-
-/** Print (far) string of fixed length to log */
-static void dlog_fnprint(const char __far *s, unsigned l)
-{
-	while (l > 0) {
-		dlog_putc(*s++);
-		l--;
-	}
-}
-
-/** Print + newline */
-static void dlog_puts(const char *s)
-{
-	dlog_print(s);
-	dlog_endline();
-}
-
-/** Print unsigned number with base */
-static void dlog_printub(unsigned int num, int base)
-{
-	char buf[8];
+	char buf[6];
 	int i = 0;
 
 	do {
-		int digit = num % base;
+		unsigned digit = num % base;
 
 		if (digit < 10) {
 			buf[i] = '0' + digit;
@@ -134,59 +98,217 @@ static void dlog_printub(unsigned int num, int base)
 	} while (num > 0 && i < sizeof(buf));
 
 	while (i--) {
-		dlog_putc(buf[i]);
+		dputc(buf[i]);
 	}
 }
 
-/** Print signed number with base */
-static void dlog_printdb(int num, int base)
+static void d_ultoa(unsigned long num, unsigned base)
 {
-	unsigned int unum;
+	char buf[12];
+	int i = 0;
+
+	do {
+		unsigned digit = 0;
+
+		static inline void uldiv(void);
+#pragma aux uldiv = \
+			"push eax" \
+			"push ecx" \
+			"push edx" \
+			"mov eax, [num]" \
+			"movzx ecx, [base]" \
+			"xor edx, edx" \
+			\
+			"div ecx" \
+			\
+			"mov [num], eax" \
+			"mov [digit], dx" \
+			\
+			"pop edx" \
+			"pop ecx" \
+			"pop eax" \
+			__modify __exact [];
+		uldiv();
+
+		if (digit < 10) {
+			buf[i] = '0' + digit;
+		} else {
+			buf[i] = 'a' + (digit - 10);
+		}
+
+		i++;
+	} while (num > 0 && i < sizeof(buf));
+
+	while (i--) {
+		dputc(buf[i]);
+	}
+}
+
+static void d_itoa(int num, unsigned base)
+{
+	unsigned unum;
 
 	// TODO
 	if (num < 0) {
-		dlog_putc('-');
+		dputc('-');
 		unum = -num;
 	} else {
 		unum = num;
 	}
 
-	dlog_printub(unum, base);
+	d_utoa(unum, base);
 }
 
-/** Print unsigned number in base 16. */
-static void dlog_printu(unsigned int num)
+static void d_ltoa(long num, unsigned base)
 {
-	dlog_printub(num, 10);
+	unsigned long unum;
+
+	// TODO
+	if (num < 0) {
+		dputc('-');
+		unum = -num;
+	} else {
+		unum = num;
+	}
+
+	d_ultoa(unum, base);
 }
 
-/** Print unsigned number in base 10. */
-static void dlog_printx(unsigned int num)
+static unsigned d_strtou(const char * __far *str)
 {
-	dlog_printub(num, 16);
+	unsigned i = 0;
+	const char *s = *str;
+	char c = *s;
+	while (c >= '0' && c <= '9') {
+		i = (i * 10) + (c - '0');
+		c = *(++s);
+	}
+	*str = s;
+	return i;
 }
 
-/** Print signed number in base 10. */
-static void dlog_printd(int num)
+static void d_printstr(const char __far *s, unsigned l)
 {
-	dlog_printdb(num, 10);
+	while (l > 0 && *s) {
+		dputc(*s++);
+		l--;
+	}
+}
+
+static void dprintf(const char *fmt, ...)
+{
+	va_list va;
+	char c;
+
+	va_start(va, fmt);
+
+	while ((c = *(fmt++))) {
+		if (c == '%') {
+			unsigned width, precision, size;
+			bool is_far = false;
+
+			width = d_strtou(&fmt);
+
+			if ((c = *fmt) == '.') {
+				fmt++;
+				precision = d_strtou(&fmt);
+			} else {
+				precision = UINT_MAX;
+			}
+
+			switch ((c = *fmt)) {
+			case 'l':
+				size = sizeof(long);
+				fmt++;
+				break;
+			case 'h':
+				size = sizeof(short);
+				fmt++;
+				break;
+			case 'F':
+				is_far = true;
+				fmt++;
+				break;
+			default:
+				size = sizeof(int);
+				break;
+			}
+
+			switch ((c = *fmt)) {
+			case 'd':
+				switch (size) {
+				case sizeof(int):
+					d_itoa(va_arg(va, int), 10);
+					break;
+				case sizeof(long):
+					d_ltoa(va_arg(va, long), 10);
+					break;
+				}
+				break;
+			case 'u':
+				switch (size) {
+				case sizeof(int):
+					d_utoa(va_arg(va, int), 10);
+					break;
+				case sizeof(long):
+					d_ultoa(va_arg(va, long), 10);
+					break;
+				}
+				break;
+			case 'x':
+				switch (size) {
+				case sizeof(int):
+					d_utoa(va_arg(va, int), 16);
+					break;
+				case sizeof(long):
+					d_ultoa(va_arg(va, long), 16);
+					break;
+				}
+				break;
+			case 'p':
+				if (is_far) {
+					void __far *p = va_arg(va, void __far *);
+					d_utoa(FP_SEG(p), 16);
+					dputc(':');
+					d_utoa(FP_OFF(p), 16);
+				} else {
+					d_utoa(va_arg(va, unsigned), 16);
+				}
+				break;
+			case 's':
+				d_printstr(is_far ? va_arg(va, const char __far *)
+				                  : va_arg(va, const char *),
+				           precision);
+				break;
+			case '%':
+				dputc('%');
+				break;
+			}
+			fmt++;
+		} else {
+			dputc(c);
+		}
+	}
+
+	va_end(va);
+}
+
+static void dputs(const char *s)
+{
+	char c;
+	while ((c = *(s++))) {
+		dputc(c);
+	}
+	dputc('\n');
 }
 
 #else /* ENABLE_DLOG */
 
-#define dlog_nop()          do { } while(0)
-#define dlog_init()         dlog_nop()
-#define dlog_putc(c)        dlog_nop()
-#define dlog_endline()      dlog_nop()
-#define dlog_print(s)       dlog_nop()
-#define dlog_fprint(s)      dlog_nop()
-#define dlog_fnprint(s,n)   dlog_nop()
-#define dlog_puts(s)        dlog_nop()
-#define dlog_printub(n,b)   dlog_nop()
-#define dlog_printdb(n,b)   dlog_nop()
-#define dlog_printx(n)      dlog_nop()
-#define dlog_printu(n)      dlog_nop()
-#define dlog_printd(n)      dlog_nop()
+#define dlog_nop()       do { } while(0)
+#define dlog_init()      dlog_nop()
+#define dputc(c)         dlog_nop()
+#define dputs(s)         dlog_nop()
+#define dprintf(...)     dlog_nop()
 
 
 #endif /* ENABLE_DLOG */

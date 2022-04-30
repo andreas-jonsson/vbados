@@ -94,9 +94,7 @@ int vbox_init_buffer(LPVBOXCOMM vb, unsigned size)
 		if (err) {
 			// As far as I have seen, most VDS providers always keep low memory contiguous,
 			// so I'm not handling VDS_REGION_NOT_CONTIGUOUS here.
-			dlog_print("Error while VDS locking, err=");
-			dlog_printd(err);
-			dlog_endline();
+			dprintf("Error while VDS locking, err=%d\n", err);
 			return err;
 		}
 
@@ -115,9 +113,7 @@ int vbox_release_buffer(LPVBOXCOMM vb)
 	if (vb->vds && vds_available()) {
 		int err = vds_unlock_dma_buffer_region(&vb->dds, 0);
 		if (err) {
-			dlog_print("Error while VDS unlocking, err=");
-			dlog_printd(err);
-			dlog_endline();
+			dprintf("Error while VDS unlocking, err=%d\n", err);
 			// Ignore the error, it's not like we can do anything
 		}
 	}

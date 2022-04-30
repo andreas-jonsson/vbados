@@ -102,9 +102,7 @@ static void send_wheel_movement(int8_t z)
 	WPARAM wParam;
 
 #if TRACE_EVENTS
-	dlog_print("w16mouse: wheel=");
-	dlog_printd(z);
-	dlog_endline();
+	dprintf("w16mouse: wheel=%d\n", z);
 #endif
 
 	// TODO It's highly unlikely that we can call this many functions from
@@ -156,19 +154,8 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
 	int status = 0;
 
 #if TRACE_EVENTS
-	dlog_print("w16mouse: events=");
-	dlog_printx(events);
-	dlog_print(" buttons=");
-	dlog_printx(buttons);
-	dlog_print(" x=");
-	dlog_printd(x);
-	dlog_print(" y=");
-	dlog_printd(y);
-	dlog_print(" dx=");
-	dlog_printd(delta_x);
-	dlog_print(" dy=");
-	dlog_printd(delta_y);
-	dlog_endline();
+	dprintf("w16mouse: events=0x%x buttons=0x%x x=%d y=%d dx=%d dy=%d\n",
+	        events, buttons, x, y, delta_x, delta_y);
 #endif
 
 	if (events & INT33_EVENT_MASK_LEFT_BUTTON_PRESSED)   status |= SF_B1_DOWN;
@@ -214,15 +201,12 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
 	(void) buttons;
 
 #if TRACE_EVENTS
-	dlog_print("w16mouse: post status=");
-	dlog_printx(status);
-	dlog_print(" x=");
-	if (status & SF_ABSOLUTE) dlog_printu(x);
-	                     else dlog_printd(x);
-	dlog_print(" y=");
-	if (status & SF_ABSOLUTE) dlog_printu(y);
-	                     else dlog_printd(y);
-	dlog_endline();
+	dprintf("w16mouse: post status=0x%x ", status);
+	if (status & SF_ABSOLUTE) {
+		dprintf("x=%u y=%u\n", x, y);
+	} else {
+		dprintf("x=%d y=%d\n", x, y);
+	}
 #endif
 
 	send_event(status, x, y, MOUSE_NUM_BUTTONS, 0, 0);

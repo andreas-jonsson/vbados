@@ -349,6 +349,9 @@ static int configure_driver(LPTSRDATA data)
 		data->files[i].handle = SHFL_HANDLE_NIL;
 	}
 
+	// Configure the debug logging port
+	dlog_init();
+
 	// Initialize TSR data
 	data->dossda = dos_get_swappable_dos_area();
 

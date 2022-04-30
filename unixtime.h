@@ -140,7 +140,7 @@ static void timestampns_to_dos_time(uint16_t __far *dos_time, uint16_t __far *do
 	day = 1 + days_since_epoch; // (day is 1-based)
 
 	if (year < DOS_EPOCH_YEAR) {
-		dlog_puts("Year is too old, will show as 0");
+		dputs("Year is too old, will show as 0");
 		year = 0;
 	} else {
 		year -= DOS_EPOCH_YEAR;
@@ -178,12 +178,6 @@ static void timestampns_from_dos_time(int64_t *timestampns, uint16_t dos_time, u
 	days_since_epoch += day - 1;
 
 	seconds2_since_day = seconds2 + (minutes * 60U/2) + (hours * 3600U/2);
-
-	dlog_print("days_since_epoch=");
-	dlog_printd(days_since_epoch);
-	dlog_print(" seconds2_since_day=");
-	dlog_printd(seconds2_since_day);
-	dlog_endline();
 
 	__asm {
 		push eax

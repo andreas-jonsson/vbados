@@ -141,15 +141,13 @@ static bool is_call_for_mounted_drive(union INTPACK __far *r)
 
 static void clear_dos_err(union INTPACK __far *r)
 {
-	dlog_puts("->ok");
+	dputs("->ok");
 	r->w.flags &= ~INTR_CF;
 }
 
 static void set_dos_err(union INTPACK __far *r, int err)
 {
-	dlog_print("->dos error ");
-	dlog_printd(err);
-	dlog_endline();
+	dprintf("->dos error %d\n", err);
 	r->w.flags |= INTR_CF;
 	r->w.ax = err;
 }
@@ -190,15 +188,7 @@ static int vbox_err_to_dos(vboxerr err)
 
 static void set_vbox_err(union INTPACK __far *r, vboxerr err)
 {
-	dlog_print("->vbox error ");
-	if (err < INT16_MIN || err > INT16_MAX) {
-		dlog_printx(err >> 16);
-		dlog_print(":");
-		dlog_printx(err & 0xFFFF);
-	} else {
-		dlog_printd(err);
-	}
-	dlog_endline();
+	dprintf("->vbox error %ld\n", err);
 	set_dos_err(r, vbox_err_to_dos(err));
 }
 
@@ -308,7 +298,10 @@ static bool copy_to_8_3_filename(char __far *dst, const SHFLSTRING *str)
 		extlen = 0;
 	}
 
-	if (namelen > 8) {
+	if (namelen == 0) {
+		// Skip files with extension but no name (e.g. ".hid")
+		valid_8_3 = false;
+	} else if (namelen > 8) {
 		namelen = 8;
 		valid_8_3 = false;
 	}
@@ -393,21 +386,19 @@ static inline void clear_sdb_openfile_index(DOSSDB __far *sdb)
 }
 
 /** Closes an openfile entry by index, and marks it as free. */
-static vboxerr close_openfile(unsigned index)
+static vboxerr close_openfile(unsigned openfile)
 {
 	vboxerr err;
 
-	dlog_print("close openfile=");
-	dlog_printu(index);
-	dlog_endline();
+	dprintf("close openfile=%u\n", openfile);
 
 	err = vbox_shfl_close(&data.vb, data.hgcm_client_id,
-	                      data.files[index].root, data.files[index].handle);
+	                      data.files[openfile].root, data.files[openfile].handle);
 
 	// Even if we have an error on close,
 	// assume the file is lost and leak the handle
-	data.files[index].root = SHFL_ROOT_NIL;
-	data.files[index].handle = SHFL_HANDLE_NIL;
+	data.files[openfile].root = SHFL_ROOT_NIL;
+	data.files[openfile].handle = SHFL_HANDLE_NIL;
 
 	return err;
 }
@@ -423,12 +414,7 @@ static void flush_sft_metadata(DOSSFT __far *sft)
 	if (sft->dev_info & DOS_SFT_FLAG_TIME_SET) {
 		unsigned buf_size = sizeof(SHFLFSOBJINFO);
 
-		dlog_puts("setting modified date/time");
-		dlog_print("time=");
-		dlog_printx(sft->f_time);
-		dlog_print("date=");
-		dlog_printx(sft->f_date);
-		dlog_endline();
+		dputs("setting modified date/time");
 
 		memset(&parms.objinfo, 0, sizeof(SHFLFSOBJINFO));
 
@@ -478,13 +464,7 @@ static void handle_create_open_ex(union INTPACK __far *r)
 		break;
 	}
 
-	dlog_print("handle_open for ");
-	dlog_fprint(path);
-	dlog_print(" act=");
-	dlog_printx(action);
-	dlog_print(" mode=");
-	dlog_printx(mode);
-	dlog_endline();
+	dprintf("handle_open for %Fs act=%x mode=%x\n", path, action, mode);
 
 	openfile = find_free_openfile();
 	if (openfile == INVALID_OPENFILE) {
@@ -530,9 +510,7 @@ static void handle_create_open_ex(union INTPACK __far *r)
 		parms.create.CreateFlags |= SHFL_CF_ACT_FAIL_IF_NEW;
 	}
 
-	dlog_print("vbox create flags=");
-	dlog_printx(parms.create.CreateFlags);
-	dlog_endline();
+	dprintf("vbox create flags=%lx\n", parms.create.CreateFlags);
 
 	err = vbox_shfl_open(&data.vb, data.hgcm_client_id, root, &shflstr.shflstr, &parms.create);
 	if (err) {
@@ -540,11 +518,7 @@ static void handle_create_open_ex(union INTPACK __far *r)
 		return;
 	}
 
-	dlog_print("vbox success result=");
-	dlog_printd(parms.create.Result);
-	dlog_print(" openfile=");
-	dlog_printu(openfile);
-	dlog_endline();
+	dprintf("vbox success result=%ld openfile=%u\n", parms.create.Result, openfile);
 
 	switch (parms.create.Result) {
 	case SHFL_PATH_NOT_FOUND:
@@ -587,9 +561,7 @@ static void handle_close(union INTPACK __far *r)
 	DOSSFT __far *sft = MK_FP(r->w.es, r->w.di);
 	unsigned openfile = get_sft_openfile_index(sft);
 
-	dlog_print("handle_close openfile=");
-	dlog_printu(openfile);
-	dlog_endline();
+	dprintf("handle_close openfile=%u\n", openfile);
 
 	if (!is_valid_openfile_index(openfile)) {
 		set_dos_err(r, DOS_ERROR_INVALID_HANDLE);
@@ -624,11 +596,7 @@ static void handle_read(union INTPACK __far *r)
 	unsigned bytes = r->w.cx;
 	vboxerr err;
 
-	dlog_print("handle_read openfile=");
-	dlog_printu(openfile);
-	dlog_print(" bytes=");
-	dlog_printu(bytes);
-	dlog_endline();
+	dprintf("handle_read openfile=%u bytes=%u\n", openfile, bytes);
 
 	if (!is_valid_openfile_index(openfile)) {
 		set_dos_err(r, DOS_ERROR_INVALID_HANDLE);
@@ -643,9 +611,7 @@ static void handle_read(union INTPACK __far *r)
 		return;
 	}
 
-	dlog_print("handle_read bytes_read=");
-	dlog_printu(bytes);
-	dlog_endline();
+	dprintf("handle_read bytes_read=%u\n", bytes);
 
 	// Advance the file position
 	sft->f_pos += bytes;
@@ -663,11 +629,7 @@ static void handle_write(union INTPACK __far *r)
 	unsigned bytes = r->w.cx;
 	vboxerr err;
 
-	dlog_print("handle_write openfile=");
-	dlog_printu(openfile);
-	dlog_print(" bytes=");
-	dlog_printu(bytes);
-	dlog_endline();
+	dprintf("handle_write openfile=%u bytes=%u\n", openfile, bytes);
 
 	if (!is_valid_openfile_index(openfile)) {
 		set_dos_err(r, DOS_ERROR_INVALID_HANDLE);
@@ -682,9 +644,7 @@ static void handle_write(union INTPACK __far *r)
 		return;
 	}
 
-	dlog_print("handle_write bytes_written=");
-	dlog_printu(bytes);
-	dlog_endline();
+	dprintf("handle_write bytes_written=%u\n", bytes);
 
 	// Advance the file position
 	sft->f_pos += bytes;
@@ -705,9 +665,7 @@ static void handle_commit(union INTPACK __far *r)
 	unsigned openfile = get_sft_openfile_index(sft);
 	vboxerr err;
 
-	dlog_print("handle_commit openfile=");
-	dlog_printu(openfile);
-	dlog_endline();
+	dprintf("handle_commit openfile=%u\n", openfile);
 
 	if (!is_valid_openfile_index(openfile)) {
 		set_dos_err(r, DOS_ERROR_INVALID_HANDLE);
@@ -737,11 +695,7 @@ static void handle_lock(union INTPACK __far *r)
 	DOSLOCK __far *ops = MK_FP(r->w.ds, r->w.dx);
 	vboxerr err;
 
-	dlog_print("handle_lock ");
-	if (unlock) dlog_print("unlock");
-	dlog_print(" numops=");
-	dlog_printu(numops);
-	dlog_endline();
+	dprintf("handle_lock %s numops=%u\n", unlock ? "unlock" : "lock", numops);
 
 	for (i = 0; i < numops; i++) {
 		err = vbox_shfl_lock(&data.vb, data.hgcm_client_id,
@@ -765,9 +719,7 @@ static void handle_seek_end(union INTPACK __far *r)
 	unsigned buf_size = sizeof(SHFLFSOBJINFO);
 	vboxerr err;
 
-	dlog_print("handle_seek_end offset=");
-	dlog_printd(offset);
-	dlog_endline();
+	dprintf("handle_seek_end openfile=%u offset=%ld\n", openfile, offset);
 
 	memset(&parms.objinfo, 0, sizeof(SHFLFSOBJINFO));
 
@@ -789,9 +741,7 @@ static void handle_seek_end(union INTPACK __far *r)
 	// Update current file size
 	sft->f_size = parms.objinfo.cbObject;
 
-	dlog_print("seek_end filesize=");
-	dlog_printd(sft->f_size);
-	dlog_endline();
+	dprintf("seek_end filesize=%lu\n", sft->f_size);
 
 	// Update the current offset pointer
 	if (offset < 0 && sft->f_size < -offset ) {
@@ -799,7 +749,7 @@ static void handle_seek_end(union INTPACK __far *r)
 		set_dos_err(r, DOS_ERROR_SEEK);
 		return;
 	} else if (offset > 0) {
-		dlog_puts("seek_end enlarge");
+		dputs("seek_end enlarge");
 		// Seeking past the end of the file, enlarge
 		err = vbox_shfl_set_file_size(&data.vb, data.hgcm_client_id,
 		                              data.files[openfile].root, data.files[openfile].handle,
@@ -817,9 +767,7 @@ static void handle_seek_end(union INTPACK __far *r)
 		sft->f_pos = sft->f_size + offset;
 	}
 
-	dlog_print("seek_end new pos=");
-	dlog_printd(sft->f_pos);
-	dlog_endline();
+	dprintf("seek_end new pos=%lu\n", sft->f_pos);
 
 	// Return new file position in dx:ax
 	r->w.dx = sft->f_pos >> 16;
@@ -832,7 +780,7 @@ static void handle_close_all(union INTPACK __far *r)
 {
 	unsigned i;
 
-	dlog_puts("handle_close_all");
+	dputs("handle_close_all");
 
 	for (i = 0; i < NUM_FILES; ++i) {
 		if (data.files[i].root != SHFL_ROOT_NIL) {
@@ -850,9 +798,7 @@ static void handle_delete(union INTPACK __far *r)
 	SHFLROOT root = data.drives[drive].root;
 	vboxerr err;
 
-	dlog_print("handle_delete ");
-	dlog_fprint(path);
-	dlog_endline();
+	dprintf("handle_delete %Fs\n", path);
 
 	copy_drive_relative_filename(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
@@ -876,11 +822,7 @@ static void handle_rename(union INTPACK __far *r)
 	SHFLROOT root = data.drives[srcdrive].root;
 	vboxerr err;
 
-	dlog_print("handle_rename ");
-	dlog_fprint(src);
-	dlog_print(" to ");
-	dlog_fprint(dst);
-	dlog_endline();
+	dprintf("handle_rename %Fs to %Fs\n", src, dst);
 
 	if (srcdrive != dstdrive) {
 		set_dos_err(r, DOS_ERROR_NOT_SAME_DEVICE);
@@ -912,9 +854,7 @@ static void handle_getattr(union INTPACK __far *r)
 	SHFLROOT root = data.drives[drive].root;
 	vboxerr err;
 
-	dlog_print("handle_getattr ");
-	dlog_fprint(path);
-	dlog_endline();
+	dprintf("handle_getattr %Fs\n", path);
 
 	copy_drive_relative_filename(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
@@ -957,11 +897,7 @@ static vboxerr open_search_dir(unsigned openfile, SHFLROOT root, const char __fa
 {
 	vboxerr err;
 
-	dlog_print("open_search_dir openfile=");
-	dlog_printu(openfile);
-	dlog_print(" path=");
-	dlog_fprint(path);
-	dlog_endline();
+	dprintf("open_search_dir openfile=%u path=%Fs\n", openfile, path);
 
 	copy_drive_relative_dirname(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
@@ -974,7 +910,7 @@ static vboxerr open_search_dir(unsigned openfile, SHFLROOT root, const char __fa
 	err = vbox_shfl_open(&data.vb, data.hgcm_client_id, root,
 	                     &shflstr.shflstr, &parms.create);
 	if (err) {
-		dlog_puts("open search dir failed");
+		dputs("open search dir failed");
 		return err;
 	}
 
@@ -988,7 +924,7 @@ static vboxerr open_search_dir(unsigned openfile, SHFLROOT root, const char __fa
 	}
 
 	if (parms.create.Handle == SHFL_HANDLE_NIL) {
-		dlog_puts("open search dir returned no handle...");
+		dputs("open search dir returned no handle...");
 		return VERR_INVALID_HANDLE;
 	}
 
@@ -1011,9 +947,7 @@ static vboxerr find_volume_label(SHFLROOT root)
 
 	translate_filename_from_host(&shflstr.shflstr);
 
-	dlog_print("label: ");
-	dlog_fprint(shflstr.buf);
-	dlog_endline();
+	dprintf("label: %s\n", shflstr.buf);
 
 	found_file->attr = _A_VOLID;
 	copy_to_8_3_filename(found_file->filename, &shflstr.shflstr);
@@ -1044,9 +978,7 @@ static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path)
 		translate_filename_to_host(&shflstr.shflstr);
 		fix_wildcards(&shflstr.shflstr);
 
-		dlog_print("fixed path=");
-		dlog_print(shflstr.buf);
-		dlog_endline();
+		dprintf("fixed path=%s\n", shflstr.buf);
 
 		if (shflstr.shflstr.ach[shflstr.shflstr.u16Length-1] == '\\') {
 			// No wildcard?
@@ -1079,14 +1011,10 @@ static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path)
 			return VERR_IO_BAD_LENGTH;
 		}
 
-		dlog_print("got diritem name=");
-		dlog_fprint(shfldirinfo.dirinfo.name.ach);
-		dlog_print(" sfnLen=");
-		dlog_printu(shfldirinfo.dirinfo.cucShortName);
-		dlog_endline();
+		dprintf("got diritem name=%s\n", shfldirinfo.dirinfo.name.ach);
 
 		if (!is_valid_dos_file(&shfldirinfo.dirinfo.Info)) {
-			dlog_puts("hiding file with invalid info");
+			dputs("hiding file with invalid info");
 			continue;
 		}
 
@@ -1098,7 +1026,7 @@ static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path)
 		// than the ones in search_attr .
 		// Except for the ARCH and RDONLY attributes, which are always accepted.
 		if (found_file->attr & search_mask) {
-			dlog_puts("hiding file with unwanted attrs");
+			dputs("hiding file with unwanted attrs");
 			continue; // Skip this one
 		}
 
@@ -1109,12 +1037,12 @@ static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path)
 		translate_filename_from_host(&shfldirinfo.dirinfo.name);
 
 		if (!copy_to_8_3_filename(found_file->filename, &shfldirinfo.dirinfo.name)) {
-			dlog_puts("hiding file with long filename");
+			dputs("hiding file with long filename");
 			continue;
 		}
 
 		if (!matches_8_3_wildcard(found_file->filename, sdb->search_templ)) {
-			dlog_puts("hiding file with unwanted filename");
+			dputs("hiding file with unwanted filename");
 			continue;
 		}
 
@@ -1122,13 +1050,7 @@ static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path)
 		break;
 	};
 
-	dlog_print("accepted file name='");
-	dlog_fnprint(&found_file->filename[0], 8);
-	dlog_putc(' ');
-	dlog_fnprint(&found_file->filename[8], 3);
-	dlog_print("' attr=");
-	dlog_printx(found_file->attr);
-	dlog_endline();
+	dprintf("accepted file name='%.11Fs' attr=0x%x\n", found_file->filename, found_file->attr);
 
 	return 0;
 }
@@ -1149,13 +1071,7 @@ static void handle_find_first(union INTPACK __far *r)
 	unsigned openfile;
 	vboxerr err;
 
-	dlog_print("find_first path=");
-	dlog_fprint(path);
-	dlog_print(" mask=");
-	dlog_fnprint(search_mask, 8+3);
-	dlog_print(" attr=");
-	dlog_printx(search_attr);
-	dlog_endline();
+	dprintf("find_first path=%Fs mask='%.11Fs' attr=0x%x\n", path, search_mask, search_attr);
 
 	// Initialize the search data block; we'll use it on future calls
 	// Even DOS seems to look and check that we did initialize it;
@@ -1171,14 +1087,14 @@ static void handle_find_first(union INTPACK __far *r)
 		// Simulate an initial entry with the volume label
 		// if we are searching for it.
 		// DOS actually expects to always find it first, and nothing else.
-		dlog_puts("search volid");
+		dputs("search volid");
 		err = find_volume_label(root);
 		if (err) {
-			dlog_puts("search volid err");
+			dputs("search volid err");
 			set_vbox_err(r, err);
 			return;
 		}
-		dlog_puts("search volid OK");
+		dputs("search volid OK");
 		clear_dos_err(r);
 		return;
 	} else if (search_attr == 0) {
@@ -1239,7 +1155,7 @@ static void handle_find_first(union INTPACK __far *r)
 	// never to call findnext again.
 	// Cue hack to avoid leaking one dirfd for each mkdir...
 	if (_fmemcmp(data.dossda->found_file.filename, "TESTDIR TMP", 8+3) == 0) {
-		dlog_puts("win3.x testdir detected");
+		dputs("win3.x testdir detected");
 		close_openfile(openfile);
 		clear_sdb_openfile_index(&data.dossda->sdb);
 	}
@@ -1252,9 +1168,7 @@ static void handle_find_next(union INTPACK __far *r)
 	unsigned openfile = get_sdb_openfile_index(&data.dossda->sdb);
 	vboxerr err;
 
-	dlog_print("find_next openfile=");
-	dlog_printu(openfile);
-	dlog_endline();
+	dprintf("find_next openfile=%u\n", openfile);
 
 	if (!is_valid_openfile_index(openfile)) {
 		set_dos_err(r, DOS_ERROR_NO_MORE_FILES);
@@ -1279,9 +1193,7 @@ static void handle_chdir(union INTPACK __far *r)
 	SHFLROOT root = data.drives[drive].root;
 	vboxerr err;
 
-	dlog_print("handle_chdir to ");
-	dlog_fprint(path);
-	dlog_endline();
+	dprintf("handle_chdir %Fs\n", path);
 
 	// Just have to check if the directory exists
 	copy_drive_relative_filename(&shflstr.shflstr, path);
@@ -1322,9 +1234,7 @@ static void handle_mkdir(union INTPACK __far *r)
 	SHFLROOT root = data.drives[drive].root;
 	vboxerr err;
 
-	dlog_print("handle_mkdir ");
-	dlog_fprint(path);
-	dlog_endline();
+	dprintf("handle_mkdir %Fs\n", path);
 
 	copy_drive_relative_filename(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
@@ -1362,9 +1272,7 @@ static void handle_rmdir(union INTPACK __far *r)
 	SHFLROOT root = data.drives[drive].root;
 	vboxerr err;
 
-	dlog_print("handle_rmdir ");
-	dlog_fprint(path);
-	dlog_endline();
+	dprintf("handle_rmdir %Fs\n", path);
 
 	copy_drive_relative_filename(&shflstr.shflstr, path);
 	translate_filename_to_host(&shflstr.shflstr);
@@ -1406,7 +1314,7 @@ static void handle_get_disk_free(union INTPACK __far *r)
 	unsigned buf_size = sizeof(SHFLVOLINFO);
 	vboxerr err;
 
-	dlog_puts("handle disk free");
+	dputs("handle disk free");
 
 	memset(&parms.volinfo, 0, sizeof(SHFLVOLINFO));
 
@@ -1433,7 +1341,7 @@ static bool int2f_11_handler(union INTPACK r)
 	if (r.h.ah != 0x11) return false; // Only interested in network redirector functions
 	if (r.h.al == 0xff && r.w.bx == 0x5742 && r.w.cx == 0x5346) {
 		// These are the magic numbers to our private "Get TSR data" function
-		dlog_puts("Get TSR data");
+		dputs("Get TSR data");
 		r.w.es = get_ds();
 		r.w.di = FP_OFF(&data);
 		r.w.bx = 0x5444;
@@ -1442,9 +1350,7 @@ static bool int2f_11_handler(union INTPACK r)
 	}
 
 #if TRACE_CALLS
-	dlog_print("2f al=");
-	dlog_printx(r.h.al);
-	dlog_endline();
+	dprintf("2f al=%hx\n", r.h.al);
 #endif
 
 	// Handle special functions that target all redirectors first

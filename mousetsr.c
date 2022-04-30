@@ -460,12 +460,12 @@ static void load_cursor(void)
 			}
 		}
 
-		dlog_puts("Loading cursor to VBox");
+		dputs("Loading cursor to VBox");
 
 		vbox_send_request(data.vb.iobase, data.vb.dds.physicalAddress);
 
 		if (req->header.rc != 0) {
-			dlog_puts("Could not send cursor to VirtualBox");
+			dputs("Could not send cursor to VirtualBox");
 			return;
 		}
 
@@ -504,13 +504,8 @@ static void reload_video_info(void)
 		data.screen_granularity.y = 8;
 	}
 
-	dlog_print("Current video mode=");
-	dlog_printx(data.video_mode.mode);
-	dlog_print(" screen_max=");
-	dlog_printd(data.screen_max.x);
-	dlog_putc(',');
-	dlog_printd(data.screen_max.y);
-	dlog_endline();
+	dprintf("Current video mode=%x screen_max=%d,%d\n",
+	        data.video_mode.mode, data.screen_max.x, data.screen_max.y);
 }
 
 /** True if the current video is different from what we have stored
@@ -558,19 +553,8 @@ static void call_event_handler(void (__far *handler)(), uint16_t events,
                                int16_t delta_x, int16_t delta_y)
 {
 #if TRACE_EVENTS
-	dlog_print("calling event handler events=");
-	dlog_printx(events);
-	dlog_print(" buttons=");
-	dlog_printx(buttons);
-	dlog_print(" x=");
-	dlog_printd(x);
-	dlog_print(" y=");
-	dlog_printd(y);
-	dlog_print(" dx=");
-	dlog_printd(delta_x);
-	dlog_print(" dy=");
-	dlog_printd(delta_y);
-	dlog_endline();
+	dprintf("calling event handler events=0x%x buttons=0x%x x=%d y=%d dx=%d dy=%d\n",
+	        events, buttons, x, y, delta_x, delta_y);
 #endif
 
 	__asm {
@@ -598,17 +582,8 @@ static void handle_mouse_event(uint16_t buttons, bool absolute, int x, int y, in
 	int i;
 
 #if TRACE_EVENTS
-	dlog_print("handle mouse event");
-	if (absolute) dlog_print(" absolute");
-	dlog_print(" buttons=");
-	dlog_printx(buttons);
-	dlog_print(" x=");
-	dlog_printd(x);
-	dlog_print(" y=");
-	dlog_printd(y);
-	dlog_print(" z=");
-	dlog_printd(z);
-	dlog_endline();
+	dprintf("handle mouse event %s buttons=0x%x x=%d y=%d z=%d\n",
+	        absolute ? "absolute" : "relative", buttons, x, y, z);
 #endif
 
 	if (absolute) {
@@ -752,15 +727,7 @@ static void handle_ps2_packet(void)
 	y = -(status & PS2M_STATUS_Y_NEG ? 0xFF00 | y : y);
 
 #if TRACE_EVENTS
-	dlog_print("ps2 packet ");
-	dlog_printx(status);
-	dlog_putc(' ');
-	dlog_printd(x);
-	dlog_putc(' ');
-	dlog_printd(y);
-	dlog_putc(' ');
-	dlog_printd(z);
-	dlog_endline();
+	dprintf("ps2 packet %x %d %d %d\n", status, x, y, z);
 #endif /* TRACE_EVENTS */
 
 #if USE_VIRTUALBOX
@@ -789,11 +756,7 @@ static void handle_ps2_packet(void)
 		uint16_t data_avail = vmwstatus & VMWARE_ABSPOINTER_STATUS_MASK_DATA;
 
 #if TRACE_EVENTS
-		dlog_print("vmware status=0x");
-		dlog_printx(vmwstatus >> 16);
-		dlog_print(" ");
-		dlog_printx(vmwstatus & 0xFFFF);
-		dlog_endline();
+		dprintf("vmware status=0x%lx\n", vmwstatus);
 #endif
 
 		if (data_avail >= VMWARE_ABSPOINTER_DATA_PACKET_SIZE) {
@@ -801,19 +764,14 @@ static void handle_ps2_packet(void)
 			vmware_abspointer_data(VMWARE_ABSPOINTER_DATA_PACKET_SIZE, &vmw);
 
 #if TRACE_EVENTS
-			dlog_print("vmware pstatus=0x");
-			dlog_printx(status);
-			dlog_print(" x=0x");
-			dlog_printx(vmw.x);
-			dlog_print(" z=");
-			dlog_printd((int8_t) (uint8_t) vmw.z);
-			dlog_endline();
+			dprintf("vmware pstatus=0x%x x=%d y=%d z=%d\n",
+			        status, vmw.x, vmw.y, (int) (uint8_t) vmw.z);
 #endif
 
 			if (vmw.status & VMWARE_ABSPOINTER_STATUS_RELATIVE) {
 				x = (int16_t) vmw.x;
 				y = (int16_t) vmw.y;
-				z = (int8_t) (uint8_t) vmw.z;
+				z = (uint8_t) vmw.z;
 			} else {
 				abs = true;
 				// Scale to screen coordinates
@@ -822,7 +780,7 @@ static void handle_ps2_packet(void)
 				           MAX(data.max.x, data.screen_max.x));
 				y = scaleu(vmw.y & 0xFFFFU, 0xFFFFU,
 				           MAX(data.max.y, data.screen_max.y));
-				z = (int8_t) (uint8_t) vmw.z;
+				z = (uint8_t) vmw.z;
 			}
 
 			if (vmw.status & VMWARE_ABSPOINTER_STATUS_BUTTON_LEFT) {
@@ -868,23 +826,15 @@ static void ps2_mouse_handler(uint16_t word0, uint16_t word1, uint16_t word2, ui
 	// We have to compute synchronization ourselves.
 
 #if TRACE_EVENTS
-	dlog_print("ps2 callback byte ");
-	dlog_printd(1 + data.cur_packet_bytes);
-	dlog_putc('/');
-	dlog_printd(data.packet_size);
-	dlog_putc('=');
-	dlog_printx(word0 & 0xFF);
-	dlog_endline();
+	dprintf("ps2 callback byte %d/%d = %x\n",
+	        1 + data.cur_packet_bytes, data.packet_size, word0 & 0xFF);
 #endif /* TRACE_EVENTS */
 
 	if (data.cur_packet_bytes &&
 	        ticks >= data.cur_packet_ticks + MAX_PS2_PACKET_DELAY) {
 		// Assume the start of a new packet
-		dlog_print("dropping packet! prev ticks=");
-		dlog_printu(data.cur_packet_ticks);
-		dlog_print(" new_ticks=");
-		dlog_printu(ticks);
-		dlog_endline();
+		dprintf("dropping packet! prev_ticks=%u new_ticks=%u\n",
+		        data.cur_packet_ticks, ticks);
 		data.cur_packet_bytes = 0;
 	}
 	if (data.cur_packet_bytes == 0) {
@@ -943,10 +893,10 @@ static void set_absolute(bool enable)
 	if (data.vbavail) {
 		int err = vbox_set_mouse(&data.vb, enable, false);
 		if (enable && !err) {
-			dlog_puts("VBox absolute mouse enabled");
+			dputs("VBox absolute mouse enabled");
 			data.vbhaveabs = true;
 		} else if (!enable) {
-			dlog_puts("VBox absolute mouse disabled");
+			dputs("VBox absolute mouse disabled");
 		}
 	}
 #endif /* USE_VIRTUALBOX */
@@ -960,12 +910,12 @@ static void set_absolute(bool enable)
 			vmware_abspointer_data_clear();
 			vmware_abspointer_cmd(VMWARE_ABSPOINTER_CMD_REQUEST_ABSOLUTE);
 
-			dlog_puts("VMware absolute mouse enabled");
+			dputs("VMware absolute mouse enabled");
 		} else {
 			vmware_abspointer_cmd(VMWARE_ABSPOINTER_CMD_REQUEST_RELATIVE);
 			vmware_abspointer_cmd(VMWARE_ABSPOINTER_CMD_DISABLE);
 
-			dlog_puts("VMware absolute mouse disabled");
+			dputs("VMware absolute mouse disabled");
 		}
 	}
 #endif /* USE_VMWARE */
@@ -992,7 +942,7 @@ static void reset_mouse_hardware()
 		err = ps2m_get_device_id(&device_id);
 		if (err || device_id != PS2M_DEVICE_ID_IMPS2) {
 			// Our special driver is not running...
-			dlog_puts("Windows running, using plain packet size");
+			dputs("Windows running, using plain packet size");
 			data.bios_packet_size = PS2M_PACKET_SIZE_PLAIN;
 		}
 	}
@@ -1004,23 +954,23 @@ static void reset_mouse_hardware()
 	if (err && data.bios_packet_size != PS2M_PACKET_SIZE_PLAIN) {
 		// However, if there is an error, drop down to plain packet size
 		// Emulators like DOSBox don't support anything but plain packet size
-		dlog_puts("BIOS didn't support streaming mode, using plain packet size");
+		dputs("BIOS didn't support streaming mode, using plain packet size");
 		data.bios_packet_size = PS2M_PACKET_SIZE_PLAIN;
 		err = ps2m_init(data.bios_packet_size);
 	}
 	if (err) {
-		dlog_puts("error on ps2m_init during reset, ignoring");
+		dputs("error on ps2m_init during reset, ignoring");
 	}
 
 #if USE_WHEEL
 	if (data.usewheel
 	        && data.bios_packet_size == PS2M_PACKET_SIZE_STREAMING
 	        && ps2m_detect_wheel()) {
-		dlog_puts("PS/2 wheel detected");
+		dputs("PS/2 wheel detected");
 		data.haswheel = true;
 		data.packet_size = PS2M_PACKET_SIZE_EXT;
 	} else {
-		if (data.usewheel) dlog_puts("PS/2 wheel NOT detected");
+		if (data.usewheel) dputs("PS/2 wheel NOT detected");
 		data.haswheel = false;
 	}
 #if USE_VMWARE
@@ -1129,7 +1079,7 @@ static void int33_handler(union INTPACK r)
 {
 	switch (r.w.ax) {
 	case INT33_RESET_MOUSE:
-		dlog_puts("Mouse reset");
+		dputs("Mouse reset");
 		reload_video_info();
 		reset_mouse_settings();
 		reset_mouse_hardware();
@@ -1139,21 +1089,21 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_SHOW_CURSOR:
 #if TRACE_EVENTS
-		dlog_puts("Mouse show cursor");
+		dputs("Mouse show cursor");
 #endif
 		data.visible_count++;
 		refresh_cursor();
 		break;
 	case INT33_HIDE_CURSOR:
 #if TRACE_EVENTS
-		dlog_puts("Mouse hide cursor");
+		dputs("Mouse hide cursor");
 #endif
 		data.visible_count--;
 		refresh_cursor();
 		break;
 	case INT33_GET_MOUSE_POSITION:
 #if TRACE_EVENTS
-		dlog_puts("Mouse get position");
+		dputs("Mouse get position");
 #endif
 		r.w.cx = snap_to_grid(data.pos.x, data.screen_granularity.x);
 		r.w.dx = snap_to_grid(data.pos.y, data.screen_granularity.y);
@@ -1167,7 +1117,7 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_SET_MOUSE_POSITION:
 #if TRACE_EVENTS
-		dlog_puts("Mouse set position");
+		dputs("Mouse set position");
 #endif
 		data.pos.x = r.w.cx;
 		data.pos.y = r.w.dx;
@@ -1181,7 +1131,7 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_GET_BUTTON_PRESSED_COUNTER:
 #if TRACE_EVENTS
-		dlog_puts("Mouse get button pressed counter");
+		dputs("Mouse get button pressed counter");
 #endif
 		r.w.ax = data.buttons;
 #if USE_WHEEL
@@ -1200,7 +1150,7 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_GET_BUTTON_RELEASED_COUNTER:
 #if TRACE_EVENTS
-		dlog_puts("Mouse get button released counter");
+		dputs("Mouse get button released counter");
 #endif
 		r.w.ax = data.buttons;
 #if USE_WHEEL
@@ -1217,11 +1167,7 @@ static void int33_handler(union INTPACK r)
 		    &data.button[MIN(r.w.bx, NUM_BUTTONS - 1)].released);
 		break;
 	case INT33_SET_HORIZONTAL_WINDOW:
-		dlog_print("Mouse set horizontal window [");
-		dlog_printd(r.w.cx);
-		dlog_putc(',');
-		dlog_printd(r.w.dx);
-		dlog_puts("]");
+		dprintf("Mouse set horizontal window [%d,%d]\n", r.w.cx, r.w.dx);
 		// Recheck in case someone changed the video mode
 		refresh_video_info();
 		data.min.x = r.w.cx;
@@ -1229,18 +1175,14 @@ static void int33_handler(union INTPACK r)
 		bound_position_to_window();
 		break;
 	case INT33_SET_VERTICAL_WINDOW:
-		dlog_print("Mouse set vertical window [");
-		dlog_printd(r.w.cx);
-		dlog_putc(',');
-		dlog_printd(r.w.dx);
-		dlog_puts("]");
+		dprintf("Mouse set vertical window [%d,%d]\n", r.w.cx, r.w.dx);
 		refresh_video_info();
 		data.min.y = r.w.cx;
 		data.max.y = r.w.dx;
 		bound_position_to_window();
 		break;
 	case INT33_SET_GRAPHICS_CURSOR:
-		dlog_puts("Mouse set graphics cursor");
+		dputs("Mouse set graphics cursor");
 		hide_cursor();
 		data.cursor_hotspot.x = r.w.bx;
 		data.cursor_hotspot.y = r.w.cx;
@@ -1249,9 +1191,7 @@ static void int33_handler(union INTPACK r)
 		refresh_cursor();
 		break;
 	case INT33_SET_TEXT_CURSOR:
-		dlog_print("Mouse set text cursor ");
-		dlog_printd(r.w.bx);
-		dlog_endline();
+		dprintf("Mouse set text cursor type=%d\n", r.w.bx);
 		hide_cursor();
 		data.cursor_text_type = r.w.bx;
 		data.cursor_text_and_mask = r.w.cx;
@@ -1260,7 +1200,7 @@ static void int33_handler(union INTPACK r)
 		break;
 	case INT33_GET_MOUSE_MOTION:
 #if TRACE_EVENTS
-		dlog_puts("Mouse get motion");
+		dputs("Mouse get motion");
 #endif
 		r.w.cx = data.delta.x;
 		r.w.dx = data.delta.y;
@@ -1268,27 +1208,21 @@ static void int33_handler(union INTPACK r)
 		data.delta.y = 0;
 		break;
 	case INT33_SET_EVENT_HANDLER:
-		dlog_puts("Mouse set event handler");
+		dputs("Mouse set event handler");
 		data.event_mask = r.w.cx;
 		data.event_handler = MK_FP(r.w.es, r.w.dx);
 		break;
 	case INT33_SET_MOUSE_SPEED:
-		dlog_print("Mouse set speed x=");
-		dlog_printd(r.w.cx);
-		dlog_print(" y=");
-		dlog_printd(r.w.dx);
-		dlog_endline();
+		dprintf("Mouse set speed x=%d y=%d\n", r.w.cx, r.w.dx);
 		data.mickeysPerLine.x = r.w.cx;
 		data.mickeysPerLine.y = r.w.dx;
 		break;
 	case INT33_SET_SPEED_DOUBLE_THRESHOLD:
-		dlog_print("Mouse set speed double threshold=");
-		dlog_printd(r.w.dx);
-		dlog_endline();
+		dprintf("Mouse set speed double threshold=%d\n", r.w.dx);
 		data.doubleSpeedThreshold = r.w.dx;
 		break;
 	case INT33_EXCHANGE_EVENT_HANDLER:
-		dlog_puts("Mouse exchange event handler");
+		dputs("Mouse exchange event handler");
 		data.event_mask = r.w.cx;
 	    {
 		    void (__far *prev_event_handler)() = data.event_handler;
@@ -1298,25 +1232,20 @@ static void int33_handler(union INTPACK r)
 	    }
 		break;
 	case INT33_GET_MOUSE_STATUS_SIZE:
-		dlog_puts("Mouse get status size");
+		dputs("Mouse get status size");
 		r.w.bx = sizeof(TSRDATA);
 		break;
 	case INT33_SAVE_MOUSE_STATUS:
-		dlog_puts("Mouse save status");
+		dputs("Mouse save status");
 		_fmemcpy(MK_FP(r.w.es, r.w.dx), &data, sizeof(TSRDATA));
 		break;
 	case INT33_LOAD_MOUSE_STATUS:
-		dlog_puts("Mouse load status");
+		dputs("Mouse load status");
 		_fmemcpy(&data, MK_FP(r.w.es, r.w.dx), sizeof(TSRDATA));
 		break;
 	case INT33_SET_MOUSE_SENSITIVITY:
-		dlog_print("Mouse set sensitivity x=");
-		dlog_printd(r.w.bx);
-		dlog_print(" y=");
-		dlog_printd(r.w.cx);
-		dlog_print(" threshold=");
-		dlog_printd(r.w.dx);
-		dlog_endline();
+		dprintf("Mouse set sensitivity x=%d y=%d threshold=%d\n",
+		        r.w.bx, r.w.cx, r.w.dx);
 		// TODO According to cutemouse, sensitivity != mickeysPerLine
 		data.mickeysPerLine.x = r.w.bx;
 		data.mickeysPerLine.y = r.w.cx;
@@ -1328,7 +1257,7 @@ static void int33_handler(union INTPACK r)
 		r.w.dx = data.doubleSpeedThreshold;
 		break;
 	case INT33_RESET_SETTINGS:
-		dlog_puts("Mouse reset settings");
+		dputs("Mouse reset settings");
 		reload_video_info();
 		reset_mouse_settings();
 		if (!data.bios_packet_size || !data.packet_size) {
@@ -1343,7 +1272,7 @@ static void int33_handler(union INTPACK r)
 		r.w.bx = 0;
 		break;
 	case INT33_GET_DRIVER_INFO:
-		dlog_puts("Mouse get driver info");
+		dputs("Mouse get driver info");
 		r.h.bh = REPORTED_VERSION_MAJOR;
 		r.h.bl = REPORTED_VERSION_MINOR;
 		r.h.ch = INT33_MOUSE_TYPE_PS2;
@@ -1363,7 +1292,7 @@ static void int33_handler(union INTPACK r)
 #if USE_WHEEL
 	// Wheel API extensions:
 	case INT33_GET_CAPABILITIES:
-		dlog_puts("Mouse get capabitilies");
+		dputs("Mouse get capabitilies");
 		r.w.ax = INT33_WHEEL_API_MAGIC; // Driver supports wheel API
 		r.w.bx = 0;
 		r.w.cx = data.haswheel ? INT33_CAPABILITY_MOUSE_API : 0;
@@ -1372,14 +1301,12 @@ static void int33_handler(union INTPACK r)
 #endif
 	// Our internal API extensions:
 	case INT33_GET_TSR_DATA:
-		dlog_puts("Get TSR data");
+		dputs("Get TSR data");
 		r.w.es = FP_SEG(&data);
 		r.w.di = FP_OFF(&data);
 		break;
 	default:
-		dlog_print("Unknown mouse function ax=");
-		dlog_printx(r.w.ax);
-		dlog_endline();
+		dprintf("Unknown mouse function ax=%x\n", r.w.ax);
 		break;
 	}
 }
@@ -1421,12 +1348,12 @@ static void windows_mouse_handler(int action, int x, int y, int buttons, int eve
 		handle_mouse_event(buttons, true, x, y, 0);
 		break;
 	case VMD_ACTION_HIDE_CURSOR:
-		dlog_puts("VMD_ACTION_HIDE_CURSOR");
+		dputs("VMD_ACTION_HIDE_CURSOR");
 		data.w386cursor = true;
 		refresh_cursor();
 		break;
 	case VMD_ACTION_SHOW_CURSOR:
-		dlog_puts("VMD_ACTION_SHOW_CURSOR");
+		dputs("VMD_ACTION_SHOW_CURSOR");
 		data.w386cursor = false;
 		refresh_cursor();
 		break;
@@ -1463,9 +1390,7 @@ static void int2f_handler(union INTPACK r)
 {
 	switch (r.w.ax) {
 	case INT2F_NOTIFY_WIN386_STARTUP:
-		dlog_print("Windows is starting, version=");
-		dlog_printx(r.w.di);
-		dlog_endline();
+		dprintf("Windows is starting, version=0x%x\n", r.w.di);
 		data.w386_startup.version = 3;
 		data.w386_startup.next = MK_FP(r.w.es, r.w.bx);
 		data.w386_startup.device_driver = 0;
@@ -1480,7 +1405,7 @@ static void int2f_handler(union INTPACK r)
 		data.haswin386 = true;
 		break;
 	case INT2F_NOTIFY_WIN386_SHUTDOWN:
-		dlog_puts("Windows is stopping");
+		dputs("Windows is stopping");
 		data.haswin386 = false;
 		data.w386cursor = false;
 		break;

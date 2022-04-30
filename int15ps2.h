@@ -227,9 +227,7 @@ static bool ps2m_detect_wheel(void)
 
 	if (device_id != PS2M_DEVICE_ID_PLAIN) {
 		// TODO: Likely we have to accept more device IDs here
-		dlog_print("Unknown initial mouse device_id=");
-		dlog_printx(device_id);
-		dlog_endline();
+		dprintf("Unknown initial mouse device_id=0x%x\n", device_id);
 		return false;
 	}
 
