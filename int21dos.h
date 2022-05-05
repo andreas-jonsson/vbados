@@ -293,6 +293,24 @@ typedef _Packed struct dos_list_of_lists {
 	uint8_t last_drive;
 } DOSLOL;
 
+typedef _Packed struct dos_nls_table {
+	uint8_t table_id;
+	void __far *table_data;
+} NLSTABLE;
+
+typedef _Packed struct file_char_table {
+	uint16_t	size;		// table size (not counting this word)
+	uint8_t		unk1;		// ??? (01h for MS-DOS 3.30-6.00)
+	uint8_t		lowest;		// lowest permissible character value for filename
+	uint8_t		highest;	// highest permissible character value for filename
+	uint8_t		unk2;		// ??? (00h for MS-DOS 3.30-6.00)
+	uint8_t		first_x;	// first excluded character in range \ all characters in this
+	uint8_t		last_x;		// last excluded character in range  / range are illegal
+	uint8_t		unk3;		// ??? (02h for MS-DOS 3.30-6.00)
+	uint8_t		n_illegal;	// number of illegal (terminator) characters
+	uint8_t		illegal[1];	// characters which terminate a filename:       ."/\[]:|<>+=;,
+} FCHAR;
+
 static inline int drive_letter_to_index(char letter)
 {
 	if (letter >= 'A' && letter <= 'Z') return letter - 'A';

@@ -17,17 +17,20 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#define __STDC_WANT_LIB_EXT1__ 1
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <dos.h>
+#include <sys/stat.h>
 
 #include "version.h"
 #include "dlog.h"
 #include "vboxshfl.h"
 #include "dostsr.h"
 #include "sftsr.h"
+#include "unicode.h"
 
 static char get_drive_letter(const char *path) {
 	if (!path || path[0] == '\0') return '\0';
@@ -77,6 +80,7 @@ static int list_folders(LPTSRDATA data)
 			continue;
 		}
 
+		(void)utf8_to_local(data, str.buf, str.buf, NULL);
 		printf(" %s on %c:\n", str.buf, drive_index_to_letter(i));
 	}
 
@@ -95,6 +99,7 @@ static int list_folders(LPTSRDATA data)
 			continue;
 		}
 
+		(void)utf8_to_local(data, str.buf, str.buf, NULL);
 		printf(" %s\n", str.buf);
 	}
 
@@ -172,7 +177,7 @@ static int unmount_shfl(LPTSRDATA data, int drive)
 	return 0;
 }
 
-static int mount(LPTSRDATA data, const char *folder, char drive_letter)
+static int mount(LPTSRDATA data, char *folder, char drive_letter)
 {
 	int drive = drive_letter_to_index(drive_letter);
 	DOSLOL __far *lol = dos_get_list_of_lists();
@@ -209,6 +214,7 @@ static int mount(LPTSRDATA data, const char *folder, char drive_letter)
 	// By setting the physical flag, we also let DOS know the drive is present
 	cds->flags = DOS_CDS_FLAG_NETWORK | DOS_CDS_FLAG_PHYSICAL;
 
+	(void)utf8_to_local(data, folder, folder, NULL);
 	printf("Shared folder '%s' mounted as drive %c:\n", folder, drive_letter);
 
 	return EXIT_SUCCESS;
@@ -335,6 +341,117 @@ static int rescan(LPTSRDATA data)
 	return 0;
 }
 
+static int get_nls(uint8_t __far * __far *file_upper_case, FCHAR __far * __far *file_char)
+{
+	union REGS r;
+	struct SREGS s;
+	static NLSTABLE nls_table;
+
+	segread(&s);
+
+	// Get FUCASE (File Uppercase Table)
+	//
+	r.w.ax = 0x6504;
+	r.x.bx  = r.x.dx = 0xffff;
+	r.x.cx  = 5;
+
+	s.es    = s.ds;
+	r.x.di  = (uint16_t) &nls_table;
+
+	intdosx(&r, &r, &s);
+
+	if (r.x.cx != 5)
+		return 1;
+
+	*file_upper_case = (uint8_t __far *)nls_table.table_data + 2;   // Skip size word
+
+	// Get FCHAR (File Terminator Table)
+	//
+	r.w.ax  = 0x6505;
+
+	intdosx(&r, &r, &s);
+
+	if ( r.x.cx != 5 )
+		return 1;
+
+	*file_char = (FCHAR __far *)nls_table.table_data;
+
+	return 0;
+}
+
+static void load_unicode_table(uint16_t far *unicode_table)
+{
+	union REGS r;
+	char filename[13];
+	char fullpath[_MAX_PATH];
+	char buffer[256];
+	struct stat filestat;
+	FILE *f;
+	int i, ret;
+
+	// get current Code Page
+	//
+	//      AX = 6601h
+	//        Return: CF set on error
+	//          AX = error code (see #01680 at AH=59h/BX=0000h)
+	//        CF clear if successful
+	//      BX = active code page (see #01757) <---
+	//      DX = system code page (see #01757)
+	//
+	r.w.ax = 0x6601;
+
+	intdos(&r, &r);
+
+	if (r.x.cflag) {
+		// Can't get codepage. Use ASCII only
+		//
+		fputs("Warning: Active code page not found", stderr);
+		goto error;
+	}
+
+	sprintf(filename, r.x.bx > 999 ? "c%duni.tbl" : "cp%duni.tbl", r.x.bx);
+
+	_searchenv(filename, "PATH", fullpath);
+	if ( '\0' == fullpath[0] ) {
+		fprintf(stderr, "Warning: Can't find Unicode table: %s", filename);
+		goto error;
+	}
+
+	f = fopen(fullpath, "rb");
+
+	if ( NULL == f ) {
+		fprintf(stderr, "Warning: Can't load Unicode table: %s", filename);
+		goto error;
+	}
+
+	if ( EOF == fscanf_s(f, "Unicode (%s)", buffer, sizeof(buffer)) ) {
+		fprintf(stderr, "Warning: Invalid file format: %s", filename);
+		goto close;
+	}
+
+	ret = fread(buffer, 1, 3, f);
+
+	if ( ret != 3 || buffer[0] != '\r' || buffer[1] != '\n' || buffer[2] != 1 ) {
+		fprintf(stderr, "Warning: Invalid file format: %s", filename);
+		goto close;
+	}
+
+	if ( 256 != (ret = fread( buffer, 1, 256, f )) ) {
+		fprintf(stderr, "Warning: Can't load Unicode table: %s", filename);
+		goto close;
+	}
+
+	_fmemcpy(unicode_table, (char far *)buffer, 256);
+
+	return;
+
+close:
+	fclose(f);
+error:
+	fputs( ". Defaulting to cp437\n", stderr );
+
+}
+
 static int configure_driver(LPTSRDATA data)
 {
 	unsigned i;
@@ -395,6 +512,14 @@ static int configure_driver(LPTSRDATA data)
 		return -1;
 	}
 
+	err = get_nls(&data->file_upper_case, &data->file_char);
+	if (err) {
+		puts("Cannot get the NLS tables.");
+		return -1;
+	}
+
+	load_unicode_table( &data->unicode_table);
+	
 	printf("Connected to VirtualBox shared folder service\n");
 
 	return 0;
@@ -594,13 +719,13 @@ int main(int argc, const char *argv[])
 		if (!data) return driver_not_found();
 		return list_folders(data);
 	} else if (stricmp(argv[argi], "mount") == 0) {
-		const char *folder;
+		char *folder;
 		char drive;
 		if (!data) return driver_not_found();
 
 		argi++;
 		if (argi >= argc) return arg_required("mount");
-		folder = argv[argi];
+		folder = (char *) argv[argi];
 		argi++;
 		if (argi >= argc) return arg_required("mount");
 		drive = get_drive_letter(argv[argi]);

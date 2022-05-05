@@ -25,8 +25,36 @@
 #include "unixtime.h"
 #include "vboxshfl.h"
 #include "sftsr.h"
+#define __IN_SFTSR__ 1
+#include "unicode.h"
 
-TSRDATA data;
+TSRDATA data = {
+	// TSR installation data
+	NULL, /** Previous int2f ISR, storing it for uninstall. */
+	NULL, /** Stored pointer for the DOS SDA. */
+
+	// TSR configuration
+	0,          /** Offset (in seconds/2) of the current timezone. */
+	NULL, NULL, /** NLS support tables. */
+	{           /** Codepage to unicode lookup table.
+	             *  Initialised to cp437 */
+		0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00E4, 0x00E0, 0x00E5, 0x00E7,
+		0x00EA, 0x00EB, 0x00E8, 0x00EF, 0x00EE, 0x00EC, 0x00C4, 0x00C5,
+		0x00C9, 0x00E6, 0x00C6, 0x00F4, 0x00F6, 0x00F2, 0x00FB, 0x00F9,
+		0x00FF, 0x00D6, 0x00DC, 0x00A2, 0x00A3, 0x00A5, 0x20A7, 0x0192,
+		0x00E1, 0x00ED, 0x00F3, 0x00FA, 0x00F1, 0x00D1, 0x00AA, 0x00BA,
+		0x00BF, 0x2310, 0x00AC, 0x00BD, 0x00BC, 0x00A1, 0x00AB, 0x00BB,
+		0x2591, 0x2592, 0x2593, 0x2502, 0x2524, 0x2561, 0x2562, 0x2556,
+		0x2555, 0x2563, 0x2551, 0x2557, 0x255D, 0x255C, 0x255B, 0x2510,
+		0x2514, 0x2534, 0x252C, 0x251C, 0x2500, 0x253C, 0x255E, 0x255F,
+		0x255A, 0x2554, 0x2569, 0x2566, 0x2560, 0x2550, 0x256C, 0x2567,
+		0x2568, 0x2564, 0x2565, 0x2559, 0x2558, 0x2552, 0x2553, 0x256B,
+		0x256A, 0x2518, 0x250C, 0x2588, 0x2584, 0x258C, 0x2590, 0x2580,
+		0x03B1, 0x00DF, 0x0393, 0x03C0, 0x03A3, 0x03C3, 0x03BC, 0x03C4,
+		0x03A6, 0x0398, 0x03A9, 0x03B4, 0x221E, 0x03C6, 0x03B5, 0x2229,
+		0x2261, 0x00B1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00F7, 0x2248,
+		0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0 }
+};
 
 /** Private buffer for VirtualBox filenames. */
 static SHFLSTRING_WITH_BUF(shflstr, SHFL_MAX_LEN);
@@ -213,22 +241,59 @@ static const char * get_basename(const char *path)
 	}
 }
 
-static void translate_filename_to_host(SHFLSTRING *str)
+static bool illegal_char( unsigned char c )
 {
-	// TODO This should map UTF-8 to local CP :(
-	(void) str;
-}
-
-static void translate_filename_from_host(SHFLSTRING *str)
-{
-	// TODO This should map UTF-8 to local CP :(
-	// At least do a poor man's uppercase...
-	unsigned i;
-	for (i = 0; i < str->u16Length; i++) {
-		if (str->ach[i] >= 'a' && str->ach[i] <= 'z') {
-			str->ach[i] = 'A' + (str->ach[i] - 'a');
+	int i= 0;
+	
+	for ( i= 0; i < data.file_char->n_illegal; ++i )
+	{
+		if ( c == data.file_char->illegal[i] )
+		{
+			return true;
 		}
 	}
+	if (  ( c < data.file_char->lowest || c > data.file_char->highest ) ||
+	     !( c < data.file_char->first_x || c > data.file_char->last_x ) )
+	{
+		return true;
+	}
+	
+	return false;
+}
+
+static unsigned char nls_toupper( unsigned char c )
+{
+	if ( c > 0x60 && c < 0x7b )
+	{
+		return c & 0xDF;
+	}
+	
+	return ( c < 0x80 ? c : data.file_upper_case[c - 0x80] );
+}
+
+static inline bool translate_filename_from_host(SHFLSTRING *str)
+{
+	unsigned i;
+	bool ret;
+	unsigned dots = 0;
+
+	ret = utf8_to_local(&data, str->ach, str->ach, &str->u16Length);
+
+	for (i = 0; i < str->u16Length; i++) {
+		if (str->ach[i] == '.') {
+			++dots;
+		}
+		else {
+			if (illegal_char(str->ach[i])) {
+				ret = false;
+			}
+			else {
+				str->ach[i] = nls_toupper(str->ach[i]);
+			}
+		}
+	}
+
+	return ret && (dots <= 1);
 }
 
 /** Tries to do some very simple heuristics to convert DOS-style wildcards
@@ -270,16 +335,16 @@ static void fix_wildcards(SHFLSTRING *str)
 static void copy_drive_relative_filename(SHFLSTRING *str, const char __far *path)
 {
 	// Assume X:.... path for now, i.e. drive_relative path starts at char 2
-	shflstring_strcpy(str, path + 2);
+	str->u16Length = local_to_utf8( &data, str->ach, path + 2, str->u16Size );
 }
 
 static void copy_drive_relative_dirname(SHFLSTRING *str, const char __far *path)
 {
 	int last_sep = my_strrchr(path + 2, '\\');
 	if (last_sep >= 0) {
-		shflstring_strncpy(str, path + 2, last_sep == 0 ? 1 : last_sep);
+		str->u16Length = local_to_utf8_n( &data, str->ach, path + 2, str->u16Size, last_sep == 0 ? 1 : last_sep );
 	} else {
-		shflstring_strcpy(str, path + 2);
+		str->u16Length = local_to_utf8( &data, str->ach, path + 2, str->u16Size );
 	}
 }
 
@@ -473,7 +538,6 @@ static void handle_create_open_ex(union INTPACK __far *r)
 	}
 
 	copy_drive_relative_filename(&shflstr.shflstr, path);
-	translate_filename_to_host(&shflstr.shflstr);
 
 	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
 	if (action & OPENEX_REPLACE_IF_EXISTS) {
@@ -801,7 +865,6 @@ static void handle_delete(union INTPACK __far *r)
 	dprintf("handle_delete %Fs\n", path);
 
 	copy_drive_relative_filename(&shflstr.shflstr, path);
-	translate_filename_to_host(&shflstr.shflstr);
 
 	err = vbox_shfl_remove(&data.vb, data.hgcm_client_id, root,
 	                       &shflstr.shflstr, SHFL_REMOVE_FILE);
@@ -830,11 +893,9 @@ static void handle_rename(union INTPACK __far *r)
 	}
 
 	copy_drive_relative_filename(&shflstr.shflstr, src);
-	translate_filename_to_host(&shflstr.shflstr);
 
 	// Reusing shfldirinfo buffer space here for our second filename
 	copy_drive_relative_filename(&shfldirinfo.dirinfo.name, dst);
-	translate_filename_to_host(&shfldirinfo.dirinfo.name);
 
 	err = vbox_shfl_rename(&data.vb, data.hgcm_client_id, root,
 	                       &shflstr.shflstr, &shfldirinfo.dirinfo.name,
@@ -857,7 +918,6 @@ static void handle_getattr(union INTPACK __far *r)
 	dprintf("handle_getattr %Fs\n", path);
 
 	copy_drive_relative_filename(&shflstr.shflstr, path);
-	translate_filename_to_host(&shflstr.shflstr);
 
 	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
 	parms.create.CreateFlags = SHFL_CF_LOOKUP;
@@ -900,7 +960,6 @@ static vboxerr open_search_dir(unsigned openfile, SHFLROOT root, const char __fa
 	dprintf("open_search_dir openfile=%u path=%Fs\n", openfile, path);
 
 	copy_drive_relative_dirname(&shflstr.shflstr, path);
-	translate_filename_to_host(&shflstr.shflstr);
 
 	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
 	parms.create.CreateFlags = SHFL_CF_DIRECTORY
@@ -945,7 +1004,7 @@ static vboxerr find_volume_label(SHFLROOT root)
 	err = vbox_shfl_query_map_name(&data.vb, data.hgcm_client_id, root, &shflstr.shflstr);
 	if (err) return err;
 
-	translate_filename_from_host(&shflstr.shflstr);
+	(void) translate_filename_from_host(&shflstr.shflstr);
 
 	dprintf("label: %s\n", shflstr.buf);
 
@@ -975,7 +1034,6 @@ static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path)
 	// this is what VirtualBox will use in future calls.
 	if (path) {
 		copy_drive_relative_filename(&shflstr.shflstr, path);
-		translate_filename_to_host(&shflstr.shflstr);
 		fix_wildcards(&shflstr.shflstr);
 
 		dprintf("fixed path=%s\n", shflstr.buf);
@@ -1034,7 +1092,10 @@ static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path)
 		// TODO Use the short filename if available from a windows host
 		// i.e. shfldirinfo.dirinfo.cucShortName
 
-		translate_filename_from_host(&shfldirinfo.dirinfo.name);
+		if (!translate_filename_from_host(&shfldirinfo.dirinfo.name)) {
+			dputs("hiding file with illegal character(s)");
+			continue;
+		}
 
 		if (!copy_to_8_3_filename(found_file->filename, &shfldirinfo.dirinfo.name)) {
 			dputs("hiding file with long filename");
@@ -1197,7 +1258,6 @@ static void handle_chdir(union INTPACK __far *r)
 
 	// Just have to check if the directory exists
 	copy_drive_relative_filename(&shflstr.shflstr, path);
-	translate_filename_to_host(&shflstr.shflstr);
 
 	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
 	parms.create.CreateFlags = SHFL_CF_LOOKUP;
@@ -1237,7 +1297,6 @@ static void handle_mkdir(union INTPACK __far *r)
 	dprintf("handle_mkdir %Fs\n", path);
 
 	copy_drive_relative_filename(&shflstr.shflstr, path);
-	translate_filename_to_host(&shflstr.shflstr);
 
 	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
 	parms.create.CreateFlags = SHFL_CF_DIRECTORY
@@ -1278,7 +1337,6 @@ static void handle_rmdir(union INTPACK __far *r)
 	dprintf("handle_rmdir %Fs\n", path);
 
 	copy_drive_relative_filename(&shflstr.shflstr, path);
-	translate_filename_to_host(&shflstr.shflstr);
 
 	err = vbox_shfl_remove(&data.vb, data.hgcm_client_id, root,
 	                       &shflstr.shflstr, SHFL_REMOVE_DIR);
