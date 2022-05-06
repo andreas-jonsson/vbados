@@ -880,7 +880,6 @@ static void handle_getattr(union INTPACK __far *r)
 	}
 
 	map_shfl_info_to_getattr(r, &parms.create.Info);
-	(void)vbox_shfl_close(&data.vb, data.hgcm_client_id, root, parms.create.Handle);
 	clear_dos_err(r);
 }
 
@@ -1222,13 +1221,10 @@ static void handle_chdir(union INTPACK __far *r)
 	// Also check whether it is really a directory
 	if (!(map_shfl_attr_to_dosattr(&parms.create.Info.Attr) & _A_SUBDIR)) {
 		set_dos_err(r, DOS_ERROR_PATH_NOT_FOUND);
-		goto chdir_close;
+		return;
 	}
 
 	clear_dos_err(r);
-
-chdir_close:
-	(void)vbox_shfl_close(&data.vb, data.hgcm_client_id, root, parms.create.Handle);
 }
 
 static void handle_mkdir(union INTPACK __far *r)
@@ -1266,7 +1262,9 @@ static void handle_mkdir(union INTPACK __far *r)
 		break;
 	}
 
-	(void)vbox_shfl_close(&data.vb, data.hgcm_client_id, root, parms.create.Handle);
+	// Immediately close newly created directory
+	vbox_shfl_close(&data.vb, data.hgcm_client_id, root, parms.create.Handle);
+
 	clear_dos_err(r);
 }
 
