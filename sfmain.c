@@ -452,7 +452,7 @@ error:
 
 }
 
-static int configure_driver(LPTSRDATA data)
+static int configure_driver(LPTSRDATA data, bool short_fnames)
 {
 	unsigned i;
 	int32_t err;
@@ -480,6 +480,16 @@ static int configure_driver(LPTSRDATA data)
 	} else {
 		data->tz_offset = 0;
 	}
+
+	// Get uppercase and valid file char tables
+	err = get_nls(&data->file_upper_case, &data->file_char);
+	if (err) {
+		puts("Cannot get the NLS tables.");
+		return -1;
+	}
+
+	// Set use of short file names from Windows hosts
+	data->short_fnames = short_fnames;
 
 	// Now try to initialize VirtualBox communication
 	err = vbox_init_device(&data->vb);
@@ -509,12 +519,6 @@ static int configure_driver(LPTSRDATA data)
 	err = vbox_shfl_set_utf8(&data->vb, data->hgcm_client_id);
 	if (err) {
 		printf("Cannot configure UTF-8 on shared folder service, err=%ld\n", err);
-		return -1;
-	}
-
-	err = get_nls(&data->file_upper_case, &data->file_char);
-	if (err) {
-		puts("Cannot get the NLS tables.");
 		return -1;
 	}
 
@@ -617,6 +621,7 @@ static void print_help(void)
 	    "Supported actions:\n"
 	    "    install            install the driver (default)\n"
 	    "        low                install in conventional memory (otherwise UMB)\n"
+	    "        short              use short file names from windows hosts\n"
 	    "    uninstall          uninstall the driver from memory\n"
 	    "    list               list available shared folders\n"
 	    "    mount <FOLD> <X:>  mount a shared folder into drive X:\n"
@@ -668,6 +673,7 @@ int main(int argc, const char *argv[])
 
 	if (argi >= argc || stricmp(argv[argi], "install") == 0) {
 		bool high = true;
+		bool short_fnames = false;
 
 		argi++;
 		for (; argi < argc; argi++) {
@@ -675,6 +681,8 @@ int main(int argc, const char *argv[])
 				high = false;
 			} else if (stricmp(argv[argi], "high") == 0) {
 				high = true;
+			} else if (stricmp(argv[argi], "short") == 0) {
+				short_fnames = true;
 			} else {
 				return invalid_arg(argv[argi]);
 			}
@@ -695,7 +703,7 @@ int main(int argc, const char *argv[])
 		} else {
 			deallocate_environment(_psp);
 		}
-		err = configure_driver(data);
+		err = configure_driver(data, short_fnames);
 		if (err) {
 			if (high) cancel_reallocation(FP_SEG(data));
 			return EXIT_FAILURE;

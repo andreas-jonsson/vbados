@@ -72,6 +72,8 @@ typedef struct {
 	FCHAR __far *file_char;
 	/** Codepage to unicode lookup table. */
 	uint16_t unicode_table[128];
+	/** LFN support */
+	bool short_fnames;
 
 	// Current status
 	/** Array of all possible DOS drives. */

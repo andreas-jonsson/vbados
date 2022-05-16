@@ -1,8 +1,5 @@
 /*
- * VBSF - unix to DOS time conversion
- * Copyright (C) 2022 Javier S. Pedro
- *
- * unicode.h: Unicode conversion routines
+ * VBSF - Unicode conversion routines
  * Copyright (C) 2011-2022 Eduardo Casino
  *
  * This program is free software; you can redistribute it and/or
@@ -212,4 +209,39 @@ cont:
 
 }
 
-#endif
+// Returns true on success, false if any unsupported char is found
+//
+static bool utf16_to_local( TSRDATAPTR data, uint8_t *dst, uint16_t *src, uint16_t len )
+{
+	bool ret = true;
+	int i;
+	uint16_t cp;
+	uint8_t c;
+	
+	for ( i = 0; i < len; ++i )
+	{
+		cp = src[i];
+		
+		if ( cp < 0x80 )
+		{
+			*dst++ = ( uint8_t ) cp;
+		}
+		else
+		{
+			c = lookup_codepage( data, cp );
+			if ( c == '\0' )
+			{
+				c = '_';
+				ret = false;
+			}
+			*dst++ = c;
+		}
+	}
+
+	*dst = '\0';
+
+	return ret;
+	
+}
+
+#endif // UNICODE_H

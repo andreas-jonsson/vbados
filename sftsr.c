@@ -25,8 +25,6 @@
 #include "unixtime.h"
 #include "vboxshfl.h"
 #include "sftsr.h"
-#define __IN_SFTSR__ 1
-#include "unicode.h"
 
 TSRDATA data = {
 	// TSR installation data
@@ -55,6 +53,10 @@ TSRDATA data = {
 		0x2261, 0x00B1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00F7, 0x2248,
 		0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0 }
 };
+
+#define __IN_SFTSR__ 1
+#include "unicode.h"
+#include "nls.h"
 
 /** Private buffer for VirtualBox filenames. */
 static SHFLSTRING_WITH_BUF(shflstr, SHFL_MAX_LEN);
@@ -231,6 +233,17 @@ static int my_strrchr(const char __far *str, char c)
 	return last;
 }
 
+static inline bool translate_filename_from_host(SHFLSTRING *str)
+{
+	bool valid;
+
+	valid = utf8_to_local( &data, str->ach, str->ach, &str->u16Length);
+
+	nls_uppercase(str);
+
+	return valid;
+}
+
 static const char * get_basename(const char *path)
 {
 	int last_sep = my_strrchr(path, '\\');
@@ -239,61 +252,6 @@ static const char * get_basename(const char *path)
 	} else {
 		return path;
 	}
-}
-
-static bool illegal_char( unsigned char c )
-{
-	int i= 0;
-	
-	for ( i= 0; i < data.file_char->n_illegal; ++i )
-	{
-		if ( c == data.file_char->illegal[i] )
-		{
-			return true;
-		}
-	}
-	if (  ( c < data.file_char->lowest || c > data.file_char->highest ) ||
-	     !( c < data.file_char->first_x || c > data.file_char->last_x ) )
-	{
-		return true;
-	}
-	
-	return false;
-}
-
-static unsigned char nls_toupper( unsigned char c )
-{
-	if ( c > 0x60 && c < 0x7b )
-	{
-		return c & 0xDF;
-	}
-	
-	return ( c < 0x80 ? c : data.file_upper_case[c - 0x80] );
-}
-
-static inline bool translate_filename_from_host(SHFLSTRING *str)
-{
-	unsigned i;
-	bool ret;
-	unsigned dots = 0;
-
-	ret = utf8_to_local(&data, str->ach, str->ach, &str->u16Length);
-
-	for (i = 0; i < str->u16Length; i++) {
-		if (str->ach[i] == '.') {
-			++dots;
-		}
-		else {
-			if (illegal_char(str->ach[i])) {
-				ret = false;
-			}
-			else {
-				str->ach[i] = nls_toupper(str->ach[i]);
-			}
-		}
-	}
-
-	return ret && (dots <= 1);
 }
 
 /** Tries to do some very simple heuristics to convert DOS-style wildcards
@@ -352,7 +310,7 @@ static bool copy_to_8_3_filename(char __far *dst, const SHFLSTRING *str)
 {
 	int last_dot = my_strrchr(str->ach, '.');
 	unsigned namelen, extlen;
-	bool valid_8_3 = true;
+	bool valid_8_3 = true, dotfile = false;
 
 	namelen = last_dot >= 0 ? last_dot : str->u16Length;
 	extlen = last_dot >= 0 ? str->u16Length - (last_dot + 1) : 0;
@@ -361,6 +319,7 @@ static bool copy_to_8_3_filename(char __far *dst, const SHFLSTRING *str)
 		// . , .. files
 		namelen = str->u16Length;
 		extlen = 0;
+		dotfile = true;
 	}
 
 	if (namelen == 0) {
@@ -381,7 +340,7 @@ static bool copy_to_8_3_filename(char __far *dst, const SHFLSTRING *str)
 	_fmemcpy(&dst[8], str->ach + last_dot + 1, extlen);
 	_fmemset(&dst[8+extlen], ' ', 3 - extlen);
 
-	return valid_8_3;
+	return valid_8_3 && (dotfile || valid_8_3_file_chars(dst));
 }
 
 static bool is_8_3_wildcard(const char __far *name)
@@ -1089,10 +1048,17 @@ static vboxerr find_next_from_vbox(unsigned openfile, const char __far *path)
 		}
 
 		// Now convert the filename
-		// TODO Use the short filename if available from a windows host
-		// i.e. shfldirinfo.dirinfo.cucShortName
-
-		if (!translate_filename_from_host(&shfldirinfo.dirinfo.name)) {
+		// Use the short filename if available from a windows host
+		if (data.short_fnames && shfldirinfo.dirinfo.cucShortName != 0) {
+				if (!utf16_to_local( &data, &shfldirinfo.dirinfo.name.ach, &shfldirinfo.dirinfo.uszShortName, shfldirinfo.dirinfo.cucShortName)) {
+				// Should not happen as Windows short names are pure ascii
+				dputs("hiding file with illegal character(s)");
+				continue;	
+			}
+			shfldirinfo.dirinfo.name.u16Length = shfldirinfo.dirinfo.cucShortName;
+			dprintf("  Host short filename: '%s'\n", shfldirinfo.dirinfo.name.ach);
+		}
+		else if (!translate_filename_from_host(&shfldirinfo.dirinfo.name)) {
 			dputs("hiding file with illegal character(s)");
 			continue;
 		}
