@@ -276,7 +276,7 @@ static int automount(LPTSRDATA data)
 
 	for (i = 0 ; i < num_maps; i++) {
 		unsigned flags = SHFL_MIQF_DRIVE_LETTER, version = 0;
-		char drive_letter;
+		char drive_letter = '\0';
 
 		err = vbox_shfl_query_map_info(&data->vb, data->hgcm_client_id, maps[i].root,
 		                               &name.shflstr, &mountPoint.shflstr, &flags, &version);
