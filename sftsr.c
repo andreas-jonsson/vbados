@@ -1124,14 +1124,6 @@ static void handle_find_first(union INTPACK __far *r)
 		dputs("search volid OK");
 		clear_dos_err(r);
 		return;
-	} else if (search_attr == 0) {
-		// Another hack to avoid leaking directory handles.
-		// While technically a mask of 0 should return all files,
-		// DOS's dir uses a mask of 0 when it just wants to check
-		// if the directory exists, and will never call FindNext.
-		// So we'll not bother opening the directory and hope nothing breaks.
-		set_dos_err(r, DOS_ERROR_NO_MORE_FILES);
-		return;
 	}
 
 	// First, open the desired directory for searching
