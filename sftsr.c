@@ -659,6 +659,27 @@ static void handle_write(union INTPACK __far *r)
 		return;
 	}
 
+	clear_dos_err(r);
+
+	// Mark the SFT as dirty and set date not valid any more
+	sft->dev_info &= ~(DOS_SFT_FLAG_CLEAN|DOS_SFT_FLAG_TIME_SET);
+
+	// Special case: If size is 0, truncate to current file position
+	if (!bytes) {
+	
+		err = vbox_shfl_set_file_size(&data.vb, data.hgcm_client_id,
+		                              data.files[openfile].root, data.files[openfile].handle,
+		                              sft->f_pos);
+		if (err) {
+			set_vbox_err(r, err);
+			return;
+		}
+
+		sft->f_size = sft->f_pos;
+
+		return;
+	}
+	
 	err = vbox_shfl_write(&data.vb, data.hgcm_client_id,
 	                      data.files[openfile].root, data.files[openfile].handle,
 	                      offset, &bytes, buffer);
@@ -675,11 +696,7 @@ static void handle_write(union INTPACK __far *r)
 	// Assume the file has grown if we've written past the end
 	if (sft->f_pos > sft->f_size) sft->f_size = sft->f_pos;
 
-	// Mark the SFT as dirty
-	sft->dev_info &= ~DOS_SFT_FLAG_CLEAN;
-
 	r->w.cx = bytes;
-	clear_dos_err(r);
 }
 
 static void handle_commit(union INTPACK __far *r)
