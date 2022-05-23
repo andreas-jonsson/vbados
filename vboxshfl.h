@@ -495,7 +495,7 @@ static vboxerr vbox_shfl_set_file_size(LPVBOXCOMM vb, hgcm_client_id_t client_id
 	vbox_hgcm_set_parameter_shflhandle(req, 1, handle);
 
 	// arg 2 in uint64 "new_size"
-	vbox_hgcm_set_parameter_uint32(req, 2, size);
+	vbox_hgcm_set_parameter_uint64(req, 2, size);
 
 	if ((err = vbox_hgcm_do_call_sync(vb, req)) < 0)
 		return err;
