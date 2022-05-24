@@ -56,7 +56,7 @@ typedef struct {
 // but we still waste a full uint64_t to store a value that is always < 4K.
 // Similarly, at most 64 roots are supported, but we waste a uint32_t.
 
-typedef struct {
+typedef _Packed struct {
 	// TSR installation data
 	/** Previous int2f ISR, storing it for uninstall. */
 	void (__interrupt __far *prev_int2f_handler)();
@@ -74,12 +74,15 @@ typedef struct {
 	uint16_t unicode_table[128];
 	/** LFN support */
 	bool short_fnames;
+	uint8_t hash_chars;
 
 	// Current status
 	/** Array of all possible DOS drives. */
 	struct {
 		/** VirtualBox "root" for this drive, or NIL if unmounted. */
 		uint32_t root;
+		/** Host file system is case sensitive flag. */
+		bool case_insensitive;
 	} drives[NUM_DRIVES];
 
 	/** All currently open files. */

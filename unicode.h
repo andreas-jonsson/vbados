@@ -40,9 +40,9 @@ static inline uint8_t lookup_codepage( TSRDATAPTR data, uint16_t cp )
 }
 
 // dst and src CAN'T BE THE SAME !!!!
-// Returns resulting length or -1 if buffer overflow
+// Returns resulting length or 0 if buffer overflow
 //
-static uint16_t local_to_utf8_n( TSRDATAPTR data, uint8_t *dst, const char far *src, uint16_t buflen, uint16_t count )
+static uint16_t local_to_utf8_n( TSRDATAPTR data, uint8_t *dst, char far *src, uint16_t buflen, uint16_t count )
 {
 	uint16_t len = 0;	// Resulting length
 	uint16_t cp;	// Unicode Code Point
@@ -63,7 +63,7 @@ static uint16_t local_to_utf8_n( TSRDATAPTR data, uint8_t *dst, const char far *
 			}
 			else
 			{
-				return -1;
+				return 0;
 			}
 		} 
 
@@ -83,7 +83,7 @@ static uint16_t local_to_utf8_n( TSRDATAPTR data, uint8_t *dst, const char far *
 			}
 			else
 			{
-				return -1;
+				return 0;
 			}
 		}
 				
@@ -102,7 +102,7 @@ static uint16_t local_to_utf8_n( TSRDATAPTR data, uint8_t *dst, const char far *
 			}
 			else
 			{
-				return -1;
+				return 0;
 			}
 		}
 cont:
@@ -117,7 +117,7 @@ cont:
 	
 }
 
-static inline uint16_t local_to_utf8( TSRDATAPTR data, uint8_t *dst, const char far *src, uint16_t buflen )
+static inline uint16_t local_to_utf8( TSRDATAPTR data, uint8_t *dst, char far *src, uint16_t buflen )
 {
 	return local_to_utf8_n( data, dst, src, buflen, buflen );
 }

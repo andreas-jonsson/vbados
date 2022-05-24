@@ -24,6 +24,7 @@
 #include <time.h>
 #include <dos.h>
 #include <sys/stat.h>
+#include <ctype.h>
 
 #include "version.h"
 #include "dlog.h"
@@ -31,6 +32,7 @@
 #include "dostsr.h"
 #include "sftsr.h"
 #include "unicode.h"
+#include "lfn.h"
 
 static char get_drive_letter(const char *path) {
 	if (!path || path[0] == '\0') return '\0';
@@ -145,6 +147,7 @@ static int mount_shfl(LPTSRDATA data, int drive, const char *folder)
 	int32_t err;
 	SHFLSTRING_WITH_BUF(str, SHFL_MAX_LEN);
 	SHFLROOT root = SHFL_ROOT_NIL;
+	unsigned flags = SHFL_MIQF_DRIVE_LETTER, version = 0;
 
 	shflstring_strcpy(&str.shflstr, folder);
 
@@ -156,6 +159,16 @@ static int mount_shfl(LPTSRDATA data, int drive, const char *folder)
 
 	data->drives[drive].root = root;
 
+	err = vbox_shfl_query_map_info(&data->vb, data->hgcm_client_id, root,
+		                               &str.shflstr, &str.shflstr, &flags, &version);
+	if (err) {
+		printf("Error on Query Map Info for mounted drive, err=%ld\n", err);
+		return -1;
+	}
+
+	// This is not a bug! VirtualBox sets SHFL_MIF_HOST_ICASE if host file system is case sensitive
+	data->drives[drive].case_insensitive = ~(flags & SHFL_MIF_HOST_ICASE);	
+	
 	return 0;
 }
 
@@ -452,7 +465,7 @@ error:
 
 }
 
-static int configure_driver(LPTSRDATA data, bool short_fnames)
+static int configure_driver(LPTSRDATA data, bool short_fnames, uint8_t hash_chars)
 {
 	unsigned i;
 	int32_t err;
@@ -490,6 +503,9 @@ static int configure_driver(LPTSRDATA data, bool short_fnames)
 
 	// Set use of short file names from Windows hosts
 	data->short_fnames = short_fnames;
+
+	// Set number of hash generated characters
+	data->hash_chars = hash_chars < MIN_HASH_CHARS ? MIN_HASH_CHARS : hash_chars > MAX_HASH_CHARS ? MAX_HASH_CHARS : hash_chars;
 
 	// Now try to initialize VirtualBox communication
 	err = vbox_init_device(&data->vb);
@@ -622,11 +638,15 @@ static void print_help(void)
 	    "    install            install the driver (default)\n"
 	    "        low                install in conventional memory (otherwise UMB)\n"
 	    "        short              use short file names from windows hosts\n"
+	    "        hash <n>           number of hash generated chars following the '~'\n"
+	    "                           for generating DOS valid files\n"
+	    "                           (%d min, %d max, %d default)\n"
 	    "    uninstall          uninstall the driver from memory\n"
 	    "    list               list available shared folders\n"
 	    "    mount <FOLD> <X:>  mount a shared folder into drive X:\n"
 	    "    umount <X:>        unmount shared folder from drive X:\n"
-	    "    rescan             unmount everything and recreate automounts\n"
+	    "    rescan             unmount everything and recreate automounts\n",
+		MIN_HASH_CHARS, MAX_HASH_CHARS, DEF_HASH_CHARS
 	);
 }
 
@@ -672,6 +692,7 @@ int main(int argc, const char *argv[])
 	int err, argi = 1;
 
 	if (argi >= argc || stricmp(argv[argi], "install") == 0) {
+		uint8_t hash_chars = DEF_HASH_CHARS;
 		bool high = true;
 		bool short_fnames = false;
 
@@ -683,6 +704,13 @@ int main(int argc, const char *argv[])
 				high = true;
 			} else if (stricmp(argv[argi], "short") == 0) {
 				short_fnames = true;
+			} else if (stricmp(argv[argi], "hash") == 0) {
+				if (argc > argi && strlen(argv[argi+1]) == 1 && isdigit(argv[argi+1][0])) {
+					hash_chars = argv[++argi][0] - '0';
+				} 
+				else {
+					return invalid_arg(argv[argi]);
+				}
 			} else {
 				return invalid_arg(argv[argi]);
 			}
@@ -703,7 +731,7 @@ int main(int argc, const char *argv[])
 		} else {
 			deallocate_environment(_psp);
 		}
-		err = configure_driver(data, short_fnames);
+		err = configure_driver(data, short_fnames, hash_chars);
 		if (err) {
 			if (high) cancel_reallocation(FP_SEG(data));
 			return EXIT_FAILURE;

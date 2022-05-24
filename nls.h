@@ -50,14 +50,21 @@ static unsigned char nls_toupper( unsigned char c )
 	return ( c < 0x80 ? c : data.file_upper_case[c - 0x80] );
 }
 
-static inline void nls_uppercase(SHFLSTRING *str)
+static inline bool nls_uppercase(SHFLSTRING *str)
 {
 	int i;
+	bool upper_case = true;
 
 	for (i= 0; i < str->u16Length; ++i)
 	{
-		str->ach[i] = nls_toupper(str->ach[i]);
+		unsigned char upper = nls_toupper(str->ach[i]);
+		if (upper != str->ach[i]) {
+			str->ach[i] = upper;
+			upper_case = false;
+		}
 	}
+	
+	return upper_case;
 }
 
 static inline bool valid_8_3_file_chars(char __far *fname )
