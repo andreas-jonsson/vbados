@@ -33,7 +33,7 @@
 
 #ifdef __IN_SFTSR__
 
-static inline bool translate_filename_from_host(SHFLSTRING *, bool);
+static inline bool translate_filename_from_host(SHFLSTRING *, bool, bool);
 static bool matches_8_3_wildcard(const char __far *, const char __far *);
 static int my_strrchr(const char __far *, char);
 
@@ -325,7 +325,7 @@ static inline char *find_real_name(
 		}
 		d = _fstrcpy_local(dest, &shfldirinfo.dirinfo.name.ach);
 
-		translate_filename_from_host(&shfldirinfo.dirinfo.name, false);
+		translate_filename_from_host(&shfldirinfo.dirinfo.name, false, true);
 		mangle_to_8_3_filename(hash, fcb_name, &shfldirinfo.dirinfo.name);
 
 		if (match_to_8_3_filename(filename, fcb_name))

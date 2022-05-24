@@ -235,12 +235,14 @@ static int my_strrchr(const char __far *str, char c)
 	return last;
 }
 
-static inline bool translate_filename_from_host(SHFLSTRING *str, bool case_insensitive)
+static inline bool translate_filename_from_host(SHFLSTRING *str, bool case_insensitive, bool uppercase)
 {
 	bool valid = utf8_to_local(&data, str->ach, str->ach, &str->u16Length);
 
-	valid = (nls_uppercase(str) || case_insensitive) && valid;
-
+	if (uppercase)
+	{
+		valid = (nls_uppercase(str) || case_insensitive) && valid;
+	}
 	return valid;
 }
 
@@ -996,7 +998,7 @@ static vboxerr find_volume_label(SHFLROOT root)
 	err = vbox_shfl_query_map_name(&data.vb, data.hgcm_client_id, root, &shflstr.shflstr);
 	if (err) return err;
 
-	(void) translate_filename_from_host(&shflstr.shflstr, false);
+	(void) translate_filename_from_host(&shflstr.shflstr, false, false);
 
 	dprintf("label: %s\n", shflstr.buf);
 
@@ -1101,7 +1103,7 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 			dprintf("  Host short filename: '%s'\n", shfldirinfo.dirinfo.name.ach);
 		}
 		else {
-			valid = translate_filename_from_host(&shfldirinfo.dirinfo.name, data.drives[drive].case_insensitive);
+			valid = translate_filename_from_host(&shfldirinfo.dirinfo.name, data.drives[drive].case_insensitive, true);
 		}
 		
 		if (valid) {
