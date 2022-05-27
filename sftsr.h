@@ -56,7 +56,7 @@ typedef struct {
 // but we still waste a full uint64_t to store a value that is always < 4K.
 // Similarly, at most 64 roots are supported, but we waste a uint32_t.
 
-typedef _Packed struct {
+typedef struct {
 	// TSR installation data
 	/** Previous int2f ISR, storing it for uninstall. */
 	void (__interrupt __far *prev_int2f_handler)();

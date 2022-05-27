@@ -1015,13 +1015,13 @@ static vboxerr find_volume_label(SHFLROOT root)
 /** Gets and fills in the next directory entry from VirtualBox. */
 static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 {
-	int drive = drive_letter_to_index(path[0]);
-	SHFLROOT root = data.drives[drive].root;
 	DOSSDB __far *sdb = &data.dossda->sdb;
 	DOSDIR __far *found_file = &data.dossda->found_file;
 	uint16_t search_mask;
 	vboxerr err;
 	uint32_t hash;
+	int drive;
+	bool case_insensitive;
 
 	// Always accept files with these attributes, even if mask says otherwise
 	search_mask = ~(sdb->search_attr | _A_ARCH | _A_RDONLY);
@@ -1030,6 +1030,10 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 	// a correct absolute mask with the correct wildcards;
 	// this is what VirtualBox will use in future calls.
 	if (path) {
+		SHFLROOT root;
+		drive = drive_letter_to_index(path[0]);
+		root = data.drives[drive].root;
+
 		copy_drive_relative_filename(root, &shflstr.shflstr, path);
 		fix_wildcards(&shflstr.shflstr);
 
@@ -1040,10 +1044,13 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 			return VERR_NO_MORE_FILES;
 		}
 	} else {
+		drive = sdb->drive & DOS_SDB_DRIVE_MASK;
 		// For find next calls, it's not really important what we pass here,
 		// as long as it's not empty.
 		shflstring_strcpy(&shflstr.shflstr, " ");
 	}
+
+	case_insensitive = data.drives[drive].case_insensitive;
 
 	while (1) { // Loop until we have a valid file (or an error)
 		unsigned size = sizeof(shfldirinfo), resume = 0, count = 0;
@@ -1103,7 +1110,7 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 			dprintf("  Host short filename: '%s'\n", shfldirinfo.dirinfo.name.ach);
 		}
 		else {
-			valid = translate_filename_from_host(&shfldirinfo.dirinfo.name, data.drives[drive].case_insensitive, true);
+			valid = translate_filename_from_host(&shfldirinfo.dirinfo.name, case_insensitive, true);
 		}
 		
 		if (valid) {

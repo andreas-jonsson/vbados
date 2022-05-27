@@ -167,7 +167,7 @@ static int mount_shfl(LPTSRDATA data, int drive, const char *folder)
 	}
 
 	// This is not a bug! VirtualBox sets SHFL_MIF_HOST_ICASE if host file system is case sensitive
-	data->drives[drive].case_insensitive = ~(flags & SHFL_MIF_HOST_ICASE);	
+	data->drives[drive].case_insensitive = !(flags & SHFL_MIF_HOST_ICASE);
 	
 	return 0;
 }
