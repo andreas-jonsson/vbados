@@ -690,6 +690,7 @@ int main(int argc, const char *argv[])
 {
 	LPTSRDATA data = get_tsr_data(true);
 	int err, argi = 1;
+	SHFLSTRING_WITH_BUF(utf8name, SHFL_MAX_LEN);
 
 	if (argi >= argc || stricmp(argv[argi], "install") == 0) {
 		uint8_t hash_chars = DEF_HASH_CHARS;
@@ -767,7 +768,8 @@ int main(int argc, const char *argv[])
 		drive = get_drive_letter(argv[argi]);
 		if (!drive) return invalid_arg(argv[argi]);
 
-		return mount(data, folder, drive);
+		local_to_utf8(data, utf8name.buf, folder, utf8name.shflstr.u16Size);
+		return mount(data, utf8name.buf, drive);
 	} else if (stricmp(argv[argi], "umount") == 0 || stricmp(argv[argi], "unmount") == 0) {
 		char drive;
 		if (!data) return driver_not_found();
