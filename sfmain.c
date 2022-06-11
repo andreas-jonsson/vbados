@@ -710,7 +710,7 @@ int main(int argc, const char *argv[])
 					hash_chars = argv[++argi][0] - '0';
 				} 
 				else {
-					return invalid_arg(argv[argi]);
+					return arg_required(argv[argi]);
 				}
 			} else {
 				return invalid_arg(argv[argi]);
