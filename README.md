@@ -18,7 +18,7 @@ The VB stands for "Very Basic" :)
 
 # Downloads
 
-The current release is _0.56_.
+The current release is _0.6_.
 You can get a recent build from the ready-to-go floppy disk image:
 
 [💾 VBADOS.FLP](https://depot.javispedro.com/vbox/vbados/vbados.flp)
@@ -37,6 +37,10 @@ For the source code, you can check out [this git repository](..).
 
 ## Version history
 
+* _0.6_: Big VBSF revamp, thanks to Eduardo Casino. VBSF now supports long file
+  names in shared folders, as well as translating host Unicode filenames into the
+  corresponding characters from the current DOS codepage.
+  Plus many VBSF compatibility fixes.
 * _0.56_: VBSF now supports changing file modification dates, and interleaving
   FindFirst/FindNext calls (used by e.g., recursive xcopy).
   Small compatibility fixes for both VBMOUSE and VBSF.
@@ -45,6 +49,14 @@ For the source code, you can check out [this git repository](..).
 * _0.53_: brings back support for 3-byte sized packets on BIOS, since some BIOS and emulators (incl Win386 and DOSBox) are not compatible with 1-byte packets.
 * _0.52_: this version switches VBMOUSE to using the PS/2 BIOS with 1-byte sized packets, to improve
 wheel mouse compatibility.
+
+## Acknowledgments
+
+* Thanks to Eduardo Casino ([VMSMOUNT project](https://vmsmount.sourceforge.io/), for his contributions regarding 
+internalization and long file name support.
+
+* NattyNarwhal ([vmwmouse](https://github.com/NattyNarwhal/vmwmouse))
+  and stsp ([dosemu2](https://github.com/dosemu2/dosemu2)) for ideas and feedback regarding the Windows 3.x driver. 
 
 ## VBMOUSE.EXE - DOS mouse driver
 
@@ -198,8 +210,8 @@ Most redirector functionality is supported, including write support, except
 changing file attributes (like setting a file to read-only...). The drives
 can also be accessed from within Windows 3.x .
 
-It uses around 10KiB of memory, and auto-installs to an UMB if available.
-This is still much less memory than a SMB client and network stack!
+It uses around 17KiB of memory, and auto-installs to an UMB if available.
+This is still less memory than a SMB client and network stack!
 
 ### Usage
 
@@ -213,9 +225,8 @@ In the add share dialog (seen above):
 * Folder Path is the actual host directory you want to mount in the guest.
 
 * Folder Name is just a given name for this shared folder, can be anything you want.  
-  When using VBSF, this will become the drive label, so ensure it fits in 8+3
-  characters.
-  
+  When using VBSF, this will become the volume label.
+
 * Mount point is the drive letter VBSF is going to use for this folder.
 
 * Use "Automount" if you want VBSF to automatically mount this folder
@@ -231,8 +242,18 @@ The driver will automatically mount all the directories marked as "Automount".
 The driver supports the following actions, too:
 
 * `install` installs the driver (i.e. the same as if you run `vbsf`).
-  `vbsf install low` can be used to force installation in conventional memory;
-  by default, it tries to use a DOS UMB block.
+  This command has several suboptions (multiple may be combined):
+    * `low` can be used to force installation in conventional memory;
+       by default, it tries to use a DOS UMB block.
+    
+    * `short` uses short filenames directly from the host OS, without any 
+      translations.  
+      This is only useful in host OSes that support storing short
+      filenames separately, like Windows hosts, and usually only if you expect
+      to use the same filesystem with a different OS later on.
+      
+    * `hash <n>` changes the number of digits reserved for the hash portion
+      of a short filename to `n`.
 
 * `uninstall` uninstalls the driver.
 
@@ -251,15 +272,27 @@ The driver supports the following actions, too:
 
 ### File names and timezones
 
-Note that there is NO Long File Name support. This means that all the files
-in the shared directory must be 8.3 characters long or shorter. Files with
-long files will just not appear in the directory listings and therefore
-cause misterious failures (they will be skipped when copying directories,
-and DOS will not be able to delete directories containing such files).
+DOS expects file names to be 8 characters long, with a 3 characters long extension.
 
-Also, there is absolutely NO support for mapping filenames to a specific codepage.
-Please limit yourself to plain ASCII filenames or you will quickly see gibberish in DOS.
-No spaces, accents or tildes!
+Since version 0.6 there is support for shared folders containing files with 
+longer filenames. These longer filenames will be "shortened" into an 8.3 filename
+by concatenating the first 4 letters of the filename, the `~` character,
+and a 3 letter hash of the filename. For example, `LONG FILE NAME.TXT` will
+become `LONG~20B.TXT`. These behave like normal files otherwise.
+
+The use of hashes allow the short file names to be consistent between reboots
+of the guest OS, even if the host OS does not have support to store long these
+short file names. If your host OS does have support for storing persistent
+short file names and want to use those instead of the autogenerated ones,
+consider using the option `short` when installing VBSF.
+If you have a directory with lots of similarly names files, it may help to reduce
+the chances of a hash collision by increase the number of letters dedicated to the
+hash portion of the short file names. For that, use the `hash <n>` option.
+
+In addition, there is support for translation of extended characters from
+the host filesystem into the guest DOS' codepage. 
+The corresponding `CPxxxUNI.TBL` is required (e.g. codepage 850 will require 
+the file CP850UNI.TBL to exist in the same directory as VBSF.EXE). 
 
 To see proper modification dates & times in directory listings in DOS,
 you need to set the TZ (timezone) environment variable _before_ loading VBSF.EXE. 
@@ -357,6 +390,10 @@ directly in the header files.
 
 * [dostsr.h](../tree/dostsr.h), helper functions for loading the resident part
   into an UMB.
+  
+* [nls.h](../tree/nls.h), locale support (for translating filenames).
+
+* [lfn.h](../tree/lfn.h), long file name ↔ short (hashed) filename conversion.
 
 * [int10vga.h](../tree/int10vga.h) functions for setting/querying video modes using
   int 10h and generally configuring and getting the state of the VGA.
@@ -546,9 +583,10 @@ this shouldn't be a problem either.
   is not empty. Eventually you'll reach a "Too many open files" error.
   Closing the DOS program should remove all leaked handles.
 
-* VMware shared folders support is interesting, but there is very little 
-  documentation that I can find, no sample code, and no open source implementation.  
-  Also, unlike VBMOUSE, where most of the code  is common to all virtualizers,
-  it will probably make more sense to make a separate "VMwareSF" TSR since most of
-  the VBSF code would be not be useful.
+* Investigate how to interact with "long file name" API providers like 9x or DOSLFN,
+  so that compatible programs can list and use long file names.
+  
+* Would it be possible to use a hardware rendered mouse pointer in Windows 3.x,
+  without having to replace the video driver?
+  This would also help other emulators.
 
