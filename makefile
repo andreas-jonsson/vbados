@@ -64,6 +64,7 @@ clean: .SYMBOLIC
 
 vbados.flp:
 	mformat -C -f 1440 -v VBADOS -i $^@ ::
+	mcopy -i $^@ nls/*.tbl ::
 
 # Build a floppy image containing the driver
 flp: vbados.flp vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe .SYMBOLIC
@@ -71,4 +72,5 @@ flp: vbados.flp vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe .SYMBOLIC
 
 # Build a zip with the driver binaries
 zip: vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe .SYMBOLIC
+	zip --DOS-names -fz- -j vbados.zip nls/*.tbl
 	zip --DOS-names -fz- vbados.zip  vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe
