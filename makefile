@@ -13,7 +13,7 @@ doscflags = -bt=dos -ms -6 -osi -w3 -wcd=202
 # -osi to optimize for size, put intrinsics inline (to avoid runtime calls)
 # -w3 enables warnings
 # -wcd=202 disables the unreferenced function warning (e.g., for inline functions in headers)
-dostsrcflags = -zu -s -g=RES_GROUP -nd=RES -nt=RES_TEXT -nc=RES_CODE
+dostsrcflags = -DIN_TSR -zu -s -g=RES_GROUP -nd=RES -nt=RES_TEXT -nc=RES_CODE
 # -s to disable stack checks, since it inserts calls to the runtime from the TSR part
 # -zu since ss != ds on the TSR
 

@@ -67,7 +67,6 @@ static SHFLSTRING_WITH_BUF(shflstr, SHFL_MAX_LEN);
 /** Private buffer where we store VirtualBox-obtained dir entries. */
 static SHFLDIRINFO_WITH_NAME_BUF(shfldirinfo, SHFL_MAX_LEN);
 
-#define __IN_SFTSR__ 1
 #include "unicode.h"
 #include "nls.h"
 #include "lfn.h"

@@ -31,7 +31,7 @@
 #define MIN_HASH_CHARS 2
 #define MAX_HASH_CHARS 6
 
-#ifdef __IN_SFTSR__
+#ifdef IN_TSR
 
 static inline bool translate_filename_from_host(SHFLSTRING *, bool, bool);
 static bool matches_8_3_wildcard(const char __far *, const char __far *);
@@ -438,5 +438,5 @@ static inline uint16_t get_true_host_name(SHFLROOT root, TSRDATAPTR data, uint8_
 	return get_true_host_name_n(root, data, dst, src, buflen, buflen);
 }
 
-#endif // __IN_SFTSR__
+#endif // IN_TSR
 #endif // LFN_H

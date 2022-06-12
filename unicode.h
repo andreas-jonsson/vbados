@@ -24,7 +24,7 @@
 #include "sftsr.h"
 
 
-#ifdef __IN_SFTSR__
+#ifdef IN_TSR
 #define TSRDATAPTR PTSRDATA
 #else
 #define TSRDATAPTR LPTSRDATA
