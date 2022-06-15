@@ -2,11 +2,11 @@
 # Assuming you have sourced `owsetenv` beforehand.
 
 # Object files for vbmouse
-mousedosobjs = mousetsr.obj mousmain.obj vbox.obj
+mousedosobjs = mousetsr.obj mousmain.obj kitten.obj vbox.obj
 mousew16objs = mousew16.obj
 
 # Object files for vbsf
-sfdosobjs = sftsr.obj sfmain.obj vbox.obj
+sfdosobjs = sftsr.obj sfmain.obj kitten.obj vbox.obj
 
 doscflags = -bt=dos -ms -6 -osi -w3 -wcd=202
 # -ms to use small memory model (though sometimes ss != ds...)
@@ -56,6 +56,9 @@ vbsf.exe: vbsf.lnk $(sfdosobjs)
 sfmain.obj: sfmain.c .AUTODEPEND
 	*wcc -fo=$^@ $(doscflags) $[@
 
+kitten.obj: kitten.c .AUTODEPEND
+	*wcc -fo=$^@ $(doscflags) $[@
+
 sftsr.obj: sftsr.c .AUTODEPEND
 	*wcc -fo=$^@ $(doscflags) $(dostsrcflags) $[@
 
@@ -65,6 +68,7 @@ clean: .SYMBOLIC
 vbados.flp:
 	mformat -C -f 1440 -v VBADOS -i $^@ ::
 	mcopy -i $^@ nls/*.tbl ::
+	mcopy -i $^@ nls/vbsf.* nls/vbmouse.* ::
 
 # Build a floppy image containing the driver
 flp: vbados.flp vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe .SYMBOLIC
@@ -72,5 +76,5 @@ flp: vbados.flp vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe .SYMBOLIC
 
 # Build a zip with the driver binaries
 zip: vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe .SYMBOLIC
-	zip --DOS-names -fz- -j vbados.zip nls/*.tbl
+	zip --DOS-names -fz- -j vbados.zip nls/*.tbl nls/vbsf.* nls/vbmouse.*
 	zip --DOS-names -fz- vbados.zip  vbmouse.exe vbmouse.drv oemsetup.inf vbsf.exe
