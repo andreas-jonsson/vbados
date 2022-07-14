@@ -292,7 +292,7 @@ hash portion of the short file names. For that, use the `hash <n>` option.
 In addition, there is support for translation of extended characters from
 the host filesystem into the guest DOS' codepage. 
 The corresponding `CPxxxUNI.TBL` is required (e.g. codepage 850 will require 
-the file CP850UNI.TBL to exist in the same directory as VBSF.EXE). 
+the file CP850UNI.TBL to exist in the current PATH or in the same directory as VBSF.EXE).
 
 To see proper modification dates & times in directory listings in DOS,
 you need to set the TZ (timezone) environment variable _before_ loading VBSF.EXE. 
@@ -391,6 +391,8 @@ directly in the header files.
 * [dostsr.h](../tree/dostsr.h), helper functions for loading the resident part
   into an UMB.
   
+* [unicode.h](../tree/unicode.h), UTF-8/UTF-16/local codepage conversion routines.
+
 * [nls.h](../tree/nls.h), locale support (for translating filenames).
 
 * [lfn.h](../tree/lfn.h), long file name ↔ short (hashed) filename conversion.
