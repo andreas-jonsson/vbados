@@ -71,7 +71,7 @@ static int list_folders(LPTSRDATA data)
 	unsigned num_maps = sizeof(maps) / sizeof(SHFLMAPPING);
 	unsigned i;
 
-	printf(kittengets(1, 0, "Mounted drives:\n"));
+	printf(_(1, 0, "Mounted drives:\n"));
 
 	for (i = 0; i < NUM_DRIVES; i++) {
 		if (data->drives[i].root == SHFL_ROOT_NIL) {
@@ -81,26 +81,26 @@ static int list_folders(LPTSRDATA data)
 
 		err = vbox_shfl_query_map_name(&data->vb, data->hgcm_client_id, data->drives[i].root, &str.shflstr);
 		if (err) {
-			printf(kittengets(3, 0, "Error on Query Map Name, err=%ld\n"), err);
+			printf(_(3, 0, "Error on Query Map Name, err=%ld\n"), err);
 			continue;
 		}
 
 		(void)utf8_to_local(data, str.buf, str.buf, NULL);
-		printf(kittengets(1, 1, " %s on %c:\n"), str.buf, drive_index_to_letter(i));
+		printf(_(1, 1, " %s on %c:\n"), str.buf, drive_index_to_letter(i));
 	}
 
 	err = vbox_shfl_query_mappings(&data->vb, data->hgcm_client_id, 0, &num_maps, maps);
 	if (err) {
-		printf(kittengets(3, 1, "Error on Query Mappings, err=%ld\n"), err);
+		printf(_(3, 1, "Error on Query Mappings, err=%ld\n"), err);
 		return err;
 	}
 
-	printf(kittengets(1, 2, "Available shared folders:\n"));
+	printf(_(1, 2, "Available shared folders:\n"));
 
 	for (i = 0 ; i < num_maps; i++) {
 		err = vbox_shfl_query_map_name(&data->vb, data->hgcm_client_id, maps[i].root, &str.shflstr);
 		if (err) {
-			printf(kittengets(3, 0, "Error on Query Map Name, err=%ld\n"), err);
+			printf(_(3, 0, "Error on Query Map Name, err=%ld\n"), err);
 			continue;
 		}
 
@@ -136,7 +136,7 @@ static void close_openfiles(LPTSRDATA data, int drive)
 
 		err = vbox_shfl_close(&data->vb, data->hgcm_client_id, data->files[i].root, data->files[i].handle);
 		if (err) {
-			printf(kittengets(3, 2, "Error on Close File, err=%ld\n"), err);
+			printf(_(3, 2, "Error on Close File, err=%ld\n"), err);
 			// Ignore it
 		}
 
@@ -156,7 +156,7 @@ static int mount_shfl(LPTSRDATA data, int drive, const char *folder)
 
 	err = vbox_shfl_map_folder(&data->vb, data->hgcm_client_id, &str.shflstr, &root);
 	if (err) {
-		fprintf(stderr, kittengets(3, 3, "Cannot mount shared folder '%s', err=%d\n"), folder, err);
+		fprintf(stderr, _(3, 3, "Cannot mount shared folder '%s', err=%d\n"), folder, err);
 		return -1;
 	}
 
@@ -165,7 +165,7 @@ static int mount_shfl(LPTSRDATA data, int drive, const char *folder)
 	err = vbox_shfl_query_map_info(&data->vb, data->hgcm_client_id, root,
 		                               &str.shflstr, &str.shflstr, &flags, &version);
 	if (err) {
-		printf(kittengets(3, 4, "Error on Query Map Info for mounted drive, err=%ld\n"), err);
+		printf(_(3, 4, "Error on Query Map Info for mounted drive, err=%ld\n"), err);
 		return -1;
 	}
 
@@ -184,7 +184,7 @@ static int unmount_shfl(LPTSRDATA data, int drive)
 	err = vbox_shfl_unmap_folder(&data->vb, data->hgcm_client_id,
 	                             data->drives[drive].root);
 	if (err) {
-		fprintf(stderr, kittengets(3, 5, "Cannot unmount shared folder, err=%d\n"), err);
+		fprintf(stderr, _(3, 5, "Cannot unmount shared folder, err=%d\n"), err);
 		return -1;
 	}
 
@@ -200,29 +200,29 @@ static int mount(LPTSRDATA data, char *folder, char drive_letter)
 	DOSCDS __far *cds;
 
 	if (drive < 0) {
-		fprintf(stderr, kittengets(3, 6, "Invalid drive %c:\n"), drive_letter);
+		fprintf(stderr, _(3, 6, "Invalid drive %c:\n"), drive_letter);
 		return EXIT_FAILURE;
 	}
 
 	if (drive >= lol->last_drive || drive >= NUM_DRIVES) {
-		fprintf(stderr, kittengets(3, 7, "Drive %c: is after LASTDRIVE\n"), drive_letter);
+		fprintf(stderr, _(3, 7, "Drive %c: is after LASTDRIVE\n"), drive_letter);
 		return EXIT_FAILURE;
 	}
 
 	if (data->drives[drive].root != SHFL_ROOT_NIL) {
-		fprintf(stderr, kittengets(3, 8, "Drive %c already mounted\n"), drive_letter);
+		fprintf(stderr, _(3, 8, "Drive %c already mounted\n"), drive_letter);
 		return EXIT_FAILURE;
 	}
 
 	cds = &lol->cds[drive];
 
 	if (cds->flags) {
-		fprintf(stderr, kittengets(3, 9, "Drive %c: already exists\n"), drive_letter);
+		fprintf(stderr, _(3, 9, "Drive %c: already exists\n"), drive_letter);
 		return EXIT_FAILURE;
 	}
 
 	if (mount_shfl(data, drive, folder) != 0) {
-		fprintf(stderr, kittengets(3, 10, "Cannot mount drive %c:\n"), drive_letter);
+		fprintf(stderr, _(3, 10, "Cannot mount drive %c:\n"), drive_letter);
 		return EXIT_FAILURE;
 	}
 
@@ -231,7 +231,7 @@ static int mount(LPTSRDATA data, char *folder, char drive_letter)
 	cds->flags = DOS_CDS_FLAG_NETWORK | DOS_CDS_FLAG_PHYSICAL;
 
 	(void)utf8_to_local(data, folder, folder, NULL);
-	printf(kittengets(1, 3, "Shared folder '%s' mounted as drive %c:\n"), folder, drive_letter);
+	printf(_(1, 3, "Shared folder '%s' mounted as drive %c:\n"), folder, drive_letter);
 
 	return EXIT_SUCCESS;
 }
@@ -243,19 +243,19 @@ static int unmount(LPTSRDATA data, char drive_letter)
 	DOSCDS __far *cds;
 
 	if (drive < 0) {
-		fprintf(stderr, kittengets(3, 6, "Invalid drive %c:\n"), drive_letter);
+		fprintf(stderr, _(3, 6, "Invalid drive %c:\n"), drive_letter);
 		return EXIT_FAILURE;
 	}
 
 	if (drive >= lol->last_drive || drive >= NUM_DRIVES) {
-		fprintf(stderr, kittengets(3, 7, "Drive %c: is after LASTDRIVE\n"), drive_letter);
+		fprintf(stderr, _(3, 7, "Drive %c: is after LASTDRIVE\n"), drive_letter);
 		return EXIT_FAILURE;
 	}
 
 	cds = &lol->cds[drive];
 
 	if (data->drives[drive].root == SHFL_ROOT_NIL) {
-		fprintf(stderr, kittengets(3, 11, "Drive %c not mounted\n"), drive_letter);
+		fprintf(stderr, _(3, 11, "Drive %c not mounted\n"), drive_letter);
 		return EXIT_FAILURE;
 	}
 
@@ -268,7 +268,7 @@ static int unmount(LPTSRDATA data, char drive_letter)
 
 	// TODO Clear current directory ?
 
-	printf(kittengets(1, 4, "Drive %c: unmounted\n"), drive_letter);
+	printf(_(1, 4, "Drive %c: unmounted\n"), drive_letter);
 
 	return EXIT_SUCCESS;
 }
@@ -286,7 +286,7 @@ static int automount(LPTSRDATA data)
 	err = vbox_shfl_query_mappings(&data->vb, data->hgcm_client_id,
 	                               SHFL_MF_AUTOMOUNT, &num_maps, maps);
 	if (err) {
-		printf(kittengets(3, 1, "Error on Query Mappings, err=%ld\n"), err);
+		printf(_(3, 1, "Error on Query Mappings, err=%ld\n"), err);
 		return err;
 	}
 
@@ -297,7 +297,7 @@ static int automount(LPTSRDATA data)
 		err = vbox_shfl_query_map_info(&data->vb, data->hgcm_client_id, maps[i].root,
 		                               &name.shflstr, &mountPoint.shflstr, &flags, &version);
 		if (err) {
-			printf(kittengets(3, 12, "Error on Query Map Info, err=%ld\n"), err);
+			printf(_(3, 12, "Error on Query Map Info, err=%ld\n"), err);
 			continue;
 		}
 
@@ -421,7 +421,7 @@ static void load_unicode_table(uint16_t far *unicode_table)
 	if (r.x.cflag) {
 		// Can't get codepage. Use ASCII only
 		//
-		fputs(kittengets(2, 0, "Warning: Active code page not found"), stderr);
+		fputs(_(2, 0, "Warning: Active code page not found"), stderr);
 		goto error;
 	}
 
@@ -429,31 +429,31 @@ static void load_unicode_table(uint16_t far *unicode_table)
 
 	_searchenv(filename, "PATH", fullpath);
 	if ( '\0' == fullpath[0] ) {
-		fprintf(stderr, kittengets(2, 1, "Warning: Can't find Unicode table: %s"), filename);
+		fprintf(stderr, _(2, 1, "Warning: Can't find Unicode table: %s"), filename);
 		goto error;
 	}
 
 	f = fopen(fullpath, "rb");
 
 	if ( NULL == f ) {
-		fprintf(stderr, kittengets(2, 2, "Warning: Can't load Unicode table: %s"), filename);
+		fprintf(stderr, _(2, 2, "Warning: Can't load Unicode table: %s"), filename);
 		goto error;
 	}
 
 	if ( EOF == fscanf_s(f, "Unicode (%s)", buffer, sizeof(buffer)) ) {
-		fprintf(stderr, kittengets(2, 3, "Warning: Invalid file format: %s"), filename);
+		fprintf(stderr, _(2, 3, "Warning: Invalid file format: %s"), filename);
 		goto close;
 	}
 
 	ret = fread(buffer, 1, 3, f);
 
 	if ( ret != 3 || buffer[0] != '\r' || buffer[1] != '\n' || buffer[2] != 1 ) {
-		fprintf(stderr, kittengets(2, 3, "Warning: Invalid file format: %s"), filename);
+		fprintf(stderr, _(2, 3, "Warning: Invalid file format: %s"), filename);
 		goto close;
 	}
 
 	if ( 256 != (ret = fread( buffer, 1, 256, f )) ) {
-		fprintf(stderr, kittengets(2, 2, "Warning: Can't load Unicode table: %s"), filename);
+		fprintf(stderr, _(2, 2, "Warning: Can't load Unicode table: %s"), filename);
 		goto close;
 	}
 
@@ -464,7 +464,7 @@ static void load_unicode_table(uint16_t far *unicode_table)
 close:
 	fclose(f);
 error:
-	fputs(kittengets(2, 4, ". Defaulting to cp437\n"), stderr );
+	fputs(_(2, 4, ". Defaulting to cp437\n"), stderr );
 
 }
 
@@ -491,7 +491,7 @@ static int configure_driver(LPTSRDATA data, bool short_fnames, uint8_t hash_char
 	// Get the current timezone offset
 	if (getenv("TZ")) {
 		tzset();
-		printf(kittengets(1, 5, "Using timezone from TZ variable (%s)\n"), tzname[0]);
+		printf(_(1, 5, "Using timezone from TZ variable (%s)\n"), tzname[0]);
 		data->tz_offset = timezone / 2;
 	} else {
 		data->tz_offset = 0;
@@ -500,7 +500,7 @@ static int configure_driver(LPTSRDATA data, bool short_fnames, uint8_t hash_char
 	// Get uppercase and valid file char tables
 	err = get_nls(&data->file_upper_case, &data->file_char);
 	if (err) {
-		puts(kittengets(3, 13, "Cannot get the NLS tables"));
+		puts(_(3, 13, "Cannot get the NLS tables"));
 		return -1;
 	}
 
@@ -513,37 +513,37 @@ static int configure_driver(LPTSRDATA data, bool short_fnames, uint8_t hash_char
 	// Now try to initialize VirtualBox communication
 	err = vbox_init_device(&data->vb);
 	if (err) {
-		fprintf(stderr, kittengets(3, 14, "Cannot find VirtualBox PCI device, err=%ld\n"), err);
+		fprintf(stderr, _(3, 14, "Cannot find VirtualBox PCI device, err=%ld\n"), err);
 		return -1;
 	}
 
 	err = vbox_init_buffer(&data->vb, VBOX_BUFFER_SIZE);
 	if (err) {
-		fprintf(stderr, kittengets(3, 15, "Cannot lock buffer used for VirtualBox communication, err=%ld\n"), err);
+		fprintf(stderr, _(3, 15, "Cannot lock buffer used for VirtualBox communication, err=%ld\n"), err);
 		return -1;
 	}
 
 	err = vbox_report_guest_info(&data->vb, VBOXOSTYPE_DOS);
 	if (err) {
-		fprintf(stderr, kittengets(3, 16, "VirtualBox communication is not working, err=%ld\n"), err);
+		fprintf(stderr, _(3, 16, "VirtualBox communication is not working, err=%ld\n"), err);
 		return -1;
 	}
 
 	err = vbox_hgcm_connect_existing(&data->vb, "VBoxSharedFolders", &data->hgcm_client_id);
 	if (err) {
-		printf(kittengets(3, 17, "Cannot connect to shared folder service, err=%ld\n"), err);
+		printf(_(3, 17, "Cannot connect to shared folder service, err=%ld\n"), err);
 		return -1;
 	}
 
 	err = vbox_shfl_set_utf8(&data->vb, data->hgcm_client_id);
 	if (err) {
-		printf(kittengets(3, 18, "Cannot configure UTF-8 on shared folder service, err=%ld\n"), err);
+		printf(_(3, 18, "Cannot configure UTF-8 on shared folder service, err=%ld\n"), err);
 		return -1;
 	}
 
 	load_unicode_table( &data->unicode_table);
 	
-	printf(kittengets(1, 6, "Connected to VirtualBox shared folder service\n"));
+	printf(_(1, 6, "Connected to VirtualBox shared folder service\n"));
 
 	return 0;
 }
@@ -573,7 +573,7 @@ static __declspec(aborts) int install_driver(LPTSRDATA data, bool high)
 	data->prev_int2f_handler = _dos_getvect(0x2f);
 	_dos_setvect(0x2f, data:>int2f_isr);
 
-	printf(kittengets(1, 7, "Driver installed\n"));
+	printf(_(1, 7, "Driver installed\n"));
 
 	// If we reallocated ourselves to UMB,
 	// it's time to free our initial conventional memory allocation
@@ -595,7 +595,7 @@ static bool check_if_driver_uninstallable(LPTSRDATA data)
 	// Compare the segment of the installed handler to see if its ours
 	// or someone else's
 	if (FP_SEG(cur_int2f_handler) != FP_SEG(data)) {
-		fprintf(stderr, kittengets(3, 19, "INT2F has been hooked by someone else, cannot safely remove\n"));
+		fprintf(stderr, _(3, 19, "INT2F has been hooked by someone else, cannot safely remove\n"));
 		return false;
 	}
 
@@ -622,47 +622,47 @@ static int uninstall_driver(LPTSRDATA data)
 	// it is always 256 bytes (16 paragraphs) before the TSR segment
 	dos_free(FP_SEG(data) - (DOS_PSP_SIZE/16));
 
-	printf(kittengets(1, 8, "Driver uninstalled\n"));
+	printf(_(1, 8, "Driver uninstalled\n"));
 
 	return 0;
 }
 
 static int driver_not_found(void)
 {
-	fprintf(stderr, kittengets(3, 20, "Driver data not found (driver not installed?)\n"));
+	fprintf(stderr, _(3, 20, "Driver data not found (driver not installed?)\n"));
 	return EXIT_FAILURE;
 }
 
 static void print_help(void)
 {
-	puts(kittengets(0, 0, "\n"
+	puts(_(0, 0, "\n"
 	                        "Usage: "));
-	puts(kittengets(0, 1,   "    VBSF <ACTION> <ARGS..>\n"));
-	puts(kittengets(0, 2,   "Supported actions:"));
-	puts(kittengets(0, 3,   "    install            install the driver (default)"));
-	puts(kittengets(0, 4,   "        low                install in conventional memory (otherwise UMB)"));
-	puts(kittengets(0, 5,   "        short              use short file names from windows hosts"));
-	puts(kittengets(0, 6,   "        hash <n>           number of hash generated chars following the '~'"));
-	puts(kittengets(0, 7,   "                           for generating DOS valid files"));
-	printf(kittengets(0, 8, "                           (%d min, %d max, %d default)\n"),
+	puts(_(0, 1,   "    VBSF <ACTION> <ARGS..>\n"));
+	puts(_(0, 2,   "Supported actions:"));
+	puts(_(0, 3,   "    install            install the driver (default)"));
+	puts(_(0, 4,   "        low                install in conventional memory (otherwise UMB)"));
+	puts(_(0, 5,   "        short              use short file names from windows hosts"));
+	puts(_(0, 6,   "        hash <n>           number of hash generated chars following the '~'"));
+	puts(_(0, 7,   "                           for generating DOS valid files"));
+	printf(_(0, 8, "                           (%d min, %d max, %d default)\n"),
 	                                                         MIN_HASH_CHARS, MAX_HASH_CHARS, DEF_HASH_CHARS);
-	puts(kittengets(0, 9,   "    uninstall          uninstall the driver from memory"));
-	puts(kittengets(0, 10,  "    list               list available shared folders"));
-	puts(kittengets(0, 11,  "    mount <FOLD> <X:>  mount a shared folder into drive X:"));
-	puts(kittengets(0, 12,  "    umount <X:>        unmount shared folder from drive X:"));
-	puts(kittengets(0, 13,  "    rescan             unmount everything and recreate automounts"));
+	puts(_(0, 9,   "    uninstall          uninstall the driver from memory"));
+	puts(_(0, 10,  "    list               list available shared folders"));
+	puts(_(0, 11,  "    mount <FOLD> <X:>  mount a shared folder into drive X:"));
+	puts(_(0, 12,  "    umount <X:>        unmount shared folder from drive X:"));
+	puts(_(0, 13,  "    rescan             unmount everything and recreate automounts"));
 }
 
 static int invalid_arg(const char *s)
 {
-	fprintf(stderr, kittengets(3, 21, "Invalid argument '%s'\n"), s);
+	fprintf(stderr, _(3, 21, "Invalid argument '%s'\n"), s);
 	print_help();
 	return EXIT_FAILURE;
 }
 
 static int arg_required(const char *s)
 {
-	fprintf(stderr, kittengets(3, 22, "Argument required for '%s'\n"), s);
+	fprintf(stderr, _(3, 22, "Argument required for '%s'\n"), s);
 	print_help();
 	return EXIT_FAILURE;
 }
@@ -722,10 +722,10 @@ int main(int argc, const char *argv[])
 			}
 		}
 
-		printf(kittengets(1, 9, "\nVBSharedFolders %x.%x\n"), VERSION_MAJOR, VERSION_MINOR);
+		printf(_(1, 9, "\nVBSharedFolders %x.%x\n"), VERSION_MAJOR, VERSION_MINOR);
 
 		if (data) {
-			printf(kittengets(1, 10, "VBSF already installed\n"));
+			printf(_(1, 10, "VBSF already installed\n"));
 			print_help();
 			return EXIT_SUCCESS;
 		}

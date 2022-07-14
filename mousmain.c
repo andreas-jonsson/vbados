@@ -41,19 +41,19 @@ static void detect_wheel(LPTSRDATA data)
 	// Do a quick check for a mouse wheel here.
 	// The TSR will do its own check when it is reset anyway
 	if (data->haswheel = ps2m_detect_wheel()) {
-		printf(kittengets(1, 0, "Wheel mouse found and enabled\n"));
+		printf(_(1, 0, "Wheel mouse found and enabled\n"));
 	}
 }
 
 static int set_wheel(LPTSRDATA data, bool enable)
 {
-	printf(kittengets(1, 1, "Setting wheel support to %s\n"), enable ? kittengets(1, 2, "enabled") : kittengets(1, 3, "disabled"));
+	printf(_(1, 1, "Setting wheel support to %s\n"), enable ? kittengets(1, 2, "enabled") : kittengets(1, 3, "disabled"));
 	data->usewheel = enable;
 
 	if (data->usewheel) {
 		detect_wheel(data);
 		if (!data->haswheel) {
-			fprintf(stderr, kittengets(3, 0, "Could not find PS/2 wheel mouse\n"));
+			fprintf(stderr, _(3, 0, "Could not find PS/2 wheel mouse\n"));
 		}
 	} else {
 		data->haswheel = false;
@@ -65,24 +65,24 @@ static int set_wheel(LPTSRDATA data, bool enable)
 static int set_wheel_key(LPTSRDATA data, const char *keyname)
 {
 	if (!data->usewheel || !data->haswheel) {
-		fprintf(stderr, kittengets(3, 1, "Wheel not detected or support not enabled\n"));
+		fprintf(stderr, _(3, 1, "Wheel not detected or support not enabled\n"));
 		return EXIT_FAILURE;
 	}
 	if (keyname) {
 		if (stricmp(keyname, "updn") == 0) {
 			data->wheel_up_key = 0x4800;
 			data->wheel_down_key = 0x5000;
-			printf(kittengets(1, 4, "Generate Up Arrow / Down Arrow key presses on wheel movement\n"));
+			printf(_(1, 4, "Generate Up Arrow / Down Arrow key presses on wheel movement\n"));
 		} else if (stricmp(keyname, "pageupdn") == 0) {
 			data->wheel_up_key = 0x4900;
 			data->wheel_down_key = 0x5100;
-			printf(kittengets(1, 5, "Generate PageUp / PageDown key presses on wheel movement\n"));
+			printf(_(1, 5, "Generate PageUp / PageDown key presses on wheel movement\n"));
 		} else {
-			fprintf(stderr, kittengets(3, 2, "Unknown key '%s'\n"), keyname);
+			fprintf(stderr, _(3, 2, "Unknown key '%s'\n"), keyname);
 			return EXIT_FAILURE;
 		}
 	} else {
-		printf(kittengets(1, 6, "Disabling wheel keystroke generation\n"));
+		printf(_(1, 6, "Disabling wheel keystroke generation\n"));
 		data->wheel_up_key = 0;
 		data->wheel_down_key = 0;
 	}
@@ -100,23 +100,23 @@ static int set_virtualbox_integration(LPTSRDATA data, bool enable)
 
 		err = vbox_init_device(&data->vb);
 		if (err) {
-			fprintf(stderr, kittengets(3, 3, "Cannot find VirtualBox PCI device, err=%d\n"), err);
+			fprintf(stderr, _(3, 3, "Cannot find VirtualBox PCI device, err=%d\n"), err);
 			return err;
 		}
 
 		err = vbox_init_buffer(&data->vb, VBOX_BUFFER_SIZE);
 		if (err) {
-			fprintf(stderr, kittengets(3, 4, "Cannot lock buffer used for VirtualBox communication, err=%d\n"), err);
+			fprintf(stderr, _(3, 4, "Cannot lock buffer used for VirtualBox communication, err=%d\n"), err);
 			return err;
 		}
 
 		err = vbox_report_guest_info(&data->vb, VBOXOSTYPE_DOS);
 		if (err) {
-			fprintf(stderr, kittengets(3, 5, "VirtualBox communication is not working, err=%d\n"), err);
+			fprintf(stderr, _(3, 5, "VirtualBox communication is not working, err=%d\n"), err);
 			return err;
 		}
 
-		printf(kittengets(1, 7, "VirtualBox integration enabled\n"));
+		printf(_(1, 7, "VirtualBox integration enabled\n"));
 		data->vbavail = true;
 		data->vbhaveabs = true;
 	} else {
@@ -125,11 +125,11 @@ static int set_virtualbox_integration(LPTSRDATA data, bool enable)
 
 			vbox_release_buffer(&data->vb);
 
-			printf(kittengets(1, 8, "Disabled VirtualBox integration\n"));
+			printf(_(1, 8, "Disabled VirtualBox integration\n"));
 			data->vbavail = false;
 			data->vbhaveabs = false;
 		} else {
-			printf(kittengets(1, 9, "VirtualBox integration already disabled or not available\n"));
+			printf(_(1, 9, "VirtualBox integration already disabled or not available\n"));
 		}
 	}
 
@@ -138,7 +138,7 @@ static int set_virtualbox_integration(LPTSRDATA data, bool enable)
 
 static int set_virtualbox_host_cursor(LPTSRDATA data, bool enable)
 {
-	printf(kittengets(1, 10, "Setting host cursor to %s\n"), enable ? kittengets(1, 2, "enabled") : kittengets(1, 3, "disabled"));
+	printf(_(1, 10, "Setting host cursor to %s\n"), enable ? kittengets(1, 2, "enabled") : kittengets(1, 3, "disabled"));
 	data->vbwantcursor = enable;
 
 	return 0;
@@ -157,18 +157,18 @@ static int set_vmware_integration(LPTSRDATA data, bool enable)
 
 		version = vmware_get_version();
 		if (version < 0) {
-			fprintf(stderr, kittengets(3, 6, "Could not detect VMware, err=%ld\n"), version);
+			fprintf(stderr, _(3, 6, "Could not detect VMware, err=%ld\n"), version);
 			return -1;
 		}
 
-		printf(kittengets(1, 11, "Found VMware protocol version %ld\n"), version);
+		printf(_(1, 11, "Found VMware protocol version %ld\n"), version);
 
 		vmware_abspointer_cmd(VMWARE_ABSPOINTER_CMD_ENABLE);
 
 		status = vmware_abspointer_status();
 		if ((status & VMWARE_ABSPOINTER_STATUS_MASK_ERROR)
 		        == VMWARE_ABSPOINTER_STATUS_MASK_ERROR) {
-			fprintf(stderr, kittengets(3, 7, "VMware absolute pointer error, err=0x%lx\n"),
+			fprintf(stderr, _(3, 7, "VMware absolute pointer error, err=0x%lx\n"),
 			        status & VMWARE_ABSPOINTER_STATUS_MASK_ERROR);
 			return -1;
 		}
@@ -177,7 +177,7 @@ static int set_vmware_integration(LPTSRDATA data, bool enable)
 
 		// TSR part will enable the absolute mouse when reset
 
-		printf(kittengets(1, 12, "VMware integration enabled\n"));
+		printf(_(1, 12, "VMware integration enabled\n"));
 		data->vmwavail = true;
 	} else {
 		if (data->vmwavail) {
@@ -185,9 +185,9 @@ static int set_vmware_integration(LPTSRDATA data, bool enable)
 			vmware_abspointer_cmd(VMWARE_ABSPOINTER_CMD_DISABLE);
 
 			data->vmwavail = false;
-			printf(kittengets(1, 13, "Disabled VMware integration\n"));
+			printf(_(1, 13, "Disabled VMware integration\n"));
 		} else {
-			printf(kittengets(1, 14, "VMware integration already disabled or not available\n"));
+			printf(_(1, 14, "VMware integration already disabled or not available\n"));
 		}
 	}
 
@@ -213,7 +213,7 @@ static int set_integration(LPTSRDATA data, bool enable)
 		if (!err) return 0;
 #endif
 
-		printf(kittengets(1, 15, "Neither VirtualBox nor VMware integration available\n"));
+		printf(_(1, 15, "Neither VirtualBox nor VMware integration available\n"));
 		return err;
 	} else {
 #if USE_VIRTUALBOX
@@ -237,7 +237,7 @@ static int set_host_cursor(LPTSRDATA data, bool enable)
 		return set_virtualbox_host_cursor(data, enable);
 	}
 #endif
-	printf(kittengets(1, 16, "VirtualBox integration not available\n"));
+	printf(_(1, 16, "VirtualBox integration not available\n"));
 	return -1;
 }
 
@@ -250,7 +250,7 @@ static int configure_driver(LPTSRDATA data)
 
 	// Check for PS/2 mouse BIOS availability
 	if ((err = ps2m_init(PS2M_PACKET_SIZE_PLAIN))) {
-		fprintf(stderr, kittengets(3, 8, "Cannot init PS/2 mouse BIOS, err=%d\n"), err);
+		fprintf(stderr, _(3, 8, "Cannot init PS/2 mouse BIOS, err=%d\n"), err);
 		// Can't do anything without PS/2
 		return err;
 	}
@@ -306,7 +306,7 @@ static __declspec(aborts) int install_driver(LPTSRDATA data, bool high)
 	_dos_setvect(0x2f, data:>int2f_isr);
 #endif
 
-	printf(kittengets(1, 17, "Driver installed\n"));
+	printf(_(1, 17, "Driver installed\n"));
 
 	// If we reallocated ourselves to UMB,
 	// it's time to free our initial conventional memory allocation
@@ -328,7 +328,7 @@ static bool check_if_driver_uninstallable(LPTSRDATA data)
 	// Compare the segment of the installed handler to see if its ours
 	// or someone else's
 	if (FP_SEG(cur_int33_handler) != FP_SEG(data)) {
-		fprintf(stderr, kittengets(3, 9, "INT33 has been hooked by someone else, cannot safely remove\n"));
+		fprintf(stderr, _(3, 9, "INT33 has been hooked by someone else, cannot safely remove\n"));
 		return false;
 	}
 
@@ -337,7 +337,7 @@ static bool check_if_driver_uninstallable(LPTSRDATA data)
 		void (__interrupt __far *cur_int2f_handler)() = _dos_getvect(0x2f);
 
 		if (FP_SEG(cur_int2f_handler) != FP_SEG(data)) {
-			fprintf(stderr, kittengets(3, 10, "INT2F has been hooked by someone else, cannot safely remove\n"));
+			fprintf(stderr, _(3, 10, "INT2F has been hooked by someone else, cannot safely remove\n"));
 			return false;
 		}
 	}
@@ -370,54 +370,54 @@ static int uninstall_driver(LPTSRDATA data)
 	// it is always 256 bytes (16 paragraphs) before the TSR segment
 	dos_free(FP_SEG(data) - (DOS_PSP_SIZE/16));
 
-	printf(kittengets(1, 18, "Driver uninstalled\n"));
+	printf(_(1, 18, "Driver uninstalled\n"));
 
 	return 0;
 }
 
 static int driver_reset(void)
 {
-	printf(kittengets(1, 19, "Reset mouse driver\n"));
+	printf(_(1, 19, "Reset mouse driver\n"));
 	return int33_reset() == 0xFFFF;
 }
 
 static int driver_not_found(void)
 {
-	fprintf(stderr, kittengets(3, 11, "Driver data not found (driver not installed?)\n"));
+	fprintf(stderr, _(3, 11, "Driver data not found (driver not installed?)\n"));
 	return EXIT_FAILURE;
 }
 
 static void print_help(void)
 {
-	puts(kittengets(0, 0,  "\n"
+	puts(_(0, 0,  "\n"
 	                       "Usage: "));
-	puts(kittengets(0, 1,  "    VBMOUSE <ACTION> <ARGS..>\n"));
-	puts(kittengets(0, 2,  "Supported actions:"));
-	puts(kittengets(0, 3,  "    install            install the driver (default)"));
-	puts(kittengets(0, 4,  "        low                install in conventional memory (otherwise UMB)"));
-	puts(kittengets(0, 5,  "    uninstall          uninstall the driver from memory"));
+	puts(_(0, 1,  "    VBMOUSE <ACTION> <ARGS..>\n"));
+	puts(_(0, 2,  "Supported actions:"));
+	puts(_(0, 3,  "    install            install the driver (default)"));
+	puts(_(0, 4,  "        low                install in conventional memory (otherwise UMB)"));
+	puts(_(0, 5,  "    uninstall          uninstall the driver from memory"));
 #if USE_WHEEL
-	puts(kittengets(0, 6,  "    wheel <ON|OFF>     enable/disable wheel API support"));
-	puts(kittengets(0, 7,  "    wheelkey <KEY|OFF> emulate a specific keystroke on wheel scroll"));
-	puts(kittengets(0, 8,  "                          supported keys: updn, pageupdn"));
+	puts(_(0, 6,  "    wheel <ON|OFF>     enable/disable wheel API support"));
+	puts(_(0, 7,  "    wheelkey <KEY|OFF> emulate a specific keystroke on wheel scroll"));
+	puts(_(0, 8,  "                          supported keys: updn, pageupdn"));
 #endif
 #if USE_INTEGRATION
-	puts(kittengets(0, 9,  "    integ <ON|OFF>     enable/disable virtualbox integration"));
-	puts(kittengets(0, 10, "    hostcur <ON|OFF>   enable/disable mouse cursor rendering in host"));
+	puts(_(0, 9,  "    integ <ON|OFF>     enable/disable virtualbox integration"));
+	puts(_(0, 10, "    hostcur <ON|OFF>   enable/disable mouse cursor rendering in host"));
 #endif
-	puts(kittengets(0, 11, "    reset              reset mouse driver settings"));
+	puts(_(0, 11, "    reset              reset mouse driver settings"));
 }
 
 static int invalid_arg(const char *s)
 {
-	fprintf(stderr, kittengets(3, 12, "Invalid argument '%s'\n"), s);
+	fprintf(stderr, _(3, 12, "Invalid argument '%s'\n"), s);
 	print_help();
 	return EXIT_FAILURE;
 }
 
 static int arg_required(const char *s)
 {
-	fprintf(stderr, kittengets(3, 13, "Argument required for '%s'\n"), s);
+	fprintf(stderr, _(3, 13, "Argument required for '%s'\n"), s);
 	print_help();
 	return EXIT_FAILURE;
 }
@@ -451,7 +451,7 @@ int main(int argc, const char *argv[])
 
 	cat = kittenopen("vbmouse");
 
-	printf(kittengets(1, 20, "\nVBMouse %x.%x (like MSMOUSE %x.%x)\n"), VERSION_MAJOR, VERSION_MINOR, REPORTED_VERSION_MAJOR, REPORTED_VERSION_MINOR);
+	printf(_(1, 20, "\nVBMouse %x.%x (like MSMOUSE %x.%x)\n"), VERSION_MAJOR, VERSION_MINOR, REPORTED_VERSION_MAJOR, REPORTED_VERSION_MINOR);
 
 	if (argi >= argc || stricmp(argv[argi], "install") == 0) {
 		bool high = true;
@@ -468,7 +468,7 @@ int main(int argc, const char *argv[])
 		}
 
 		if (data) {
-			printf(kittengets(1, 21, "VBMouse already installed\n"));
+			printf(_(1, 21, "VBMouse already installed\n"));
 			print_help();
 			return EXIT_SUCCESS;
 		}

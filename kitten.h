@@ -46,6 +46,8 @@ extern "C"
 #define catopen(name,flag) kittenopen(name)
 #define catclose(catalog)  kittenclose()
 
+#define _(set,message_number,message) kittengets(set,message_number,message)
+
 
   char *kittengets (int set_number, int message_number, char *message);
   nl_catd kittenopen (char *name);
