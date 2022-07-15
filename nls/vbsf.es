@@ -17,9 +17,10 @@
 0.8:                           (%d m¡n, %d m x, %d por defecto)\n
 0.9:    uninstall          desinstala el controlador de la memoria
 0.10:    list               lista carpetas compartidas disponibles
-0.11:    mount <CARP> <X:>  monta una carpeta compartida en la unidad X:
+0.11:    mount [/cs] <CARP> <X:>  monta una carpeta compartida en la unidad X:
 0.12:    umount <X:>        desmonta la carpeta compartida de la unidad X:
 0.13:    rescan             desmonta todo y recrea los automounts
+0.14:                             usar '/cs' si el anfitri¢n distingue may£s/min£s
 1.0:Unidades montadas:\n
 1.1: %s en %c:\n
 1.2:Carpetas compartidas disponibles:\n

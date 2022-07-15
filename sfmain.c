@@ -145,7 +145,7 @@ static void close_openfiles(LPTSRDATA data, int drive)
 	}
 }
 
-static int mount_shfl(LPTSRDATA data, int drive, const char *folder)
+static int mount_shfl(LPTSRDATA data, int drive, const char *folder, bool ci)
 {
 	int32_t err;
 	SHFLSTRING_WITH_BUF(str, SHFL_MAX_LEN);
@@ -161,17 +161,8 @@ static int mount_shfl(LPTSRDATA data, int drive, const char *folder)
 	}
 
 	data->drives[drive].root = root;
+	data->drives[drive].case_insensitive = ci;
 
-	err = vbox_shfl_query_map_info(&data->vb, data->hgcm_client_id, root,
-		                               &str.shflstr, &str.shflstr, &flags, &version);
-	if (err) {
-		printf(_(3, 4, "Error on Query Map Info for mounted drive, err=%ld\n"), err);
-		return -1;
-	}
-
-	// This is not a bug! VirtualBox sets SHFL_MIF_HOST_ICASE if host file system is case sensitive
-	data->drives[drive].case_insensitive = !(flags & SHFL_MIF_HOST_ICASE);
-	
 	return 0;
 }
 
@@ -193,7 +184,7 @@ static int unmount_shfl(LPTSRDATA data, int drive)
 	return 0;
 }
 
-static int mount(LPTSRDATA data, char *folder, char drive_letter)
+static int mount(LPTSRDATA data, char *folder, char drive_letter, bool ci)
 {
 	int drive = drive_letter_to_index(drive_letter);
 	DOSLOL __far *lol = dos_get_list_of_lists();
@@ -221,10 +212,11 @@ static int mount(LPTSRDATA data, char *folder, char drive_letter)
 		return EXIT_FAILURE;
 	}
 
-	if (mount_shfl(data, drive, folder) != 0) {
+	if (mount_shfl(data, drive, folder, ci) != 0) {
 		fprintf(stderr, _(3, 10, "Cannot mount drive %c:\n"), drive_letter);
 		return EXIT_FAILURE;
 	}
+
 
 	// Ok, set the network flag.
 	// By setting the physical flag, we also let DOS know the drive is present
@@ -316,7 +308,7 @@ static int automount(LPTSRDATA data)
 			drive_letter = find_free_drive_letter();
 		}
 
-		mount(data, name.buf, drive_letter);
+		mount(data, name.buf, drive_letter, true);
 	}
 
 	return 0;
@@ -648,7 +640,8 @@ static void print_help(void)
 	                                                         MIN_HASH_CHARS, MAX_HASH_CHARS, DEF_HASH_CHARS);
 	puts(_(0, 9,   "    uninstall          uninstall the driver from memory"));
 	puts(_(0, 10,  "    list               list available shared folders"));
-	puts(_(0, 11,  "    mount <FOLD> <X:>  mount a shared folder into drive X:"));
+	puts(_(0, 11,  "    mount [/cs] <FOLD> <X:>  mount a shared folder into drive X:"));
+	puts(_(0, 14,  "                             use '/cs' if host filesystem is case sensitive"));
 	puts(_(0, 12,  "    umount <X:>        unmount shared folder from drive X:"));
 	puts(_(0, 13,  "    rescan             unmount everything and recreate automounts"));
 }
@@ -763,10 +756,16 @@ int main(int argc, const char *argv[])
 	} else if (stricmp(argv[argi], "mount") == 0) {
 		char *folder;
 		char drive;
+		bool ci = true;
 		if (!data) return driver_not_found();
 
 		argi++;
 		if (argi >= argc) return arg_required("mount");
+		if (stricmp(argv[argi], "/cs") == 0) {
+			ci = false;
+			argi++;
+			if (argi >= argc) return arg_required("mount");
+		}
 		folder = (char *) argv[argi];
 		argi++;
 		if (argi >= argc) return arg_required("mount");
@@ -774,7 +773,7 @@ int main(int argc, const char *argv[])
 		if (!drive) return invalid_arg(argv[argi]);
 
 		local_to_utf8(data, utf8name.buf, folder, utf8name.shflstr.u16Size);
-		return mount(data, utf8name.buf, drive);
+		return mount(data, utf8name.buf, drive, ci);
 	} else if (stricmp(argv[argi], "umount") == 0 || stricmp(argv[argi], "unmount") == 0) {
 		char drive;
 		if (!data) return driver_not_found();

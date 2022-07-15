@@ -15,9 +15,10 @@
 0.8:                           (%d min, %d max, %d default)\n
 0.9:    uninstall          uninstall the driver from memory
 0.10:    list               list available shared folders
-0.11:    mount <FOLD> <X:>  mount a shared folder into drive X:
+0.11:    mount [/cs] <FOLD> <X:>  mount a shared folder into drive X:
 0.12:    umount <X:>        unmount shared folder from drive X:
 0.13:    rescan             unmount everything and recreate automounts
+0.14:                             use '/cs' if host filesystem is case sensitive
 1.0:Mounted drives:\n
 1.1: %s on %c:\n
 1.2:Available shared folders:\n
