@@ -2,6 +2,6 @@
 #define VERSION_H
 
 #define VERSION_MAJOR 0
-#define VERSION_MINOR 0x56
+#define VERSION_MINOR 0x61
 
 #endif // VERSION_H

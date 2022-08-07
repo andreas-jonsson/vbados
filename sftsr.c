@@ -238,10 +238,10 @@ static inline bool translate_filename_from_host(SHFLSTRING *str, bool case_insen
 {
 	bool valid = utf8_to_local(&data, str->ach, str->ach, &str->u16Length);
 
-	if (uppercase)
-	{
+	if (uppercase) {
 		valid = (nls_uppercase(str) || case_insensitive) && valid;
 	}
+
 	return valid;
 }
 
@@ -1103,12 +1103,11 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 			if (!valid) {
 				// Should not happen as Windows short names are pure ascii
 				dputs("hiding file with illegal character(s)");
-				continue;	
+				continue;
 			}
 			shfldirinfo.dirinfo.name.u16Length = shfldirinfo.dirinfo.cucShortName;
 			dprintf("  Host short filename: '%s'\n", shfldirinfo.dirinfo.name.ach);
-		}
-		else {
+		} else {
 			valid = translate_filename_from_host(&shfldirinfo.dirinfo.name, case_insensitive, true);
 		}
 		
@@ -1117,8 +1116,7 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 				dputs("Mangling long filename");
 				mangle_to_8_3_filename(hash, found_file->filename, &shfldirinfo.dirinfo.name);
 			}
-		}
-		else {
+		} else {
 			dputs("Mangling filename with illegal character(s)");
 			mangle_to_8_3_filename(hash, found_file->filename, &shfldirinfo.dirinfo.name);
 		}
